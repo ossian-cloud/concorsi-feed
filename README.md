@@ -17,6 +17,9 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   `data/BLOCKED`, which prevents further runs until removed. The portal's JSON API (disallowed by its robots.txt) is never called,
   and attachments are only linked, never downloaded. Attachments whose title suggests candidates' names (graduatorie, esiti,
   ammessi...) are dropped. Records go to `data/calls.json`; calls that leave the sitemap are kept 14 days, flagged `gone`.
+- `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
+  grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
+  (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
 - `build.py OUTDIR`: writes the index, one page per region, Atom feeds and .ics calendars (Italy, each region, and
   "Nazionale e altre aree" for calls whose area is 'Nazionale', empty or not an Italian region), `feed.html`, `info.html`,
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped

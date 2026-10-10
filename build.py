@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "bandi"))  # titles.py: sentence cas
 sys.path.insert(0, os.path.join(HERE, "vendor"))  # the same file, copied in the public repo
 sys.path.insert(0, HERE)  # after it, so our layout/atom/ics win over bandi's
 import layout
+import names
 import titles
 from atom import write_feed
 from ics import write_calendar
@@ -519,7 +520,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.</p>
 <h2>Come li leggo</h2>
 <p>Dalla mappa pubblica del sito di inPA (sitemap) e dalle sue pagine pubbliche dei concorsi, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Non interrogo le API del portale, che il suo robots.txt non consente: i link agli allegati puntano lì, ma non li apro mai.
-I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Le descrizioni sono abbreviate a 600 caratteri.</p>
+I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Nei titoli e nelle descrizioni sostituisco con «[nome omesso]» i nomi di persone (per esempio il tutor o il responsabile scientifico di un assegno di ricerca): il testo completo resta sulla pagina ufficiale. Le descrizioni sono abbreviate a 600 caratteri.</p>
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li>Solo la regione, non la provincia né il comune; per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
@@ -545,6 +546,9 @@ def main(outdir):
     for c in calls.values():
         if (c.get("posts") or 0) >= 9999:  # inPA's placeholder for "not fixed" (lists of eligible candidates)
             c["posts"] = None
+        c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
+        for a in c.get("attachments") or []:
+            a["title"] = names.redact(a.get("title"))
     # placeholders left by an administration, not calls anyone can apply to
     calls = {k: c for k, c in calls.items() if not re.match(r"\s*procedura concorsuale non attiva\s*$", c["title"], re.I)}
     now  = dt.datetime.now(ROME).replace(tzinfo=None)  # Rome wall clock, comparable with the data's local times
