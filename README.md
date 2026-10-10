@@ -17,6 +17,9 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   `data/BLOCKED`, which prevents further runs until removed. The portal's JSON API (disallowed by its robots.txt) is never called,
   and attachments are only linked, never downloaded. Attachments whose title suggests candidates' names (graduatorie, esiti,
   ammessi...) are dropped. Records go to `data/calls.json`; calls that leave the sitemap are kept 14 days, flagged `gone`.
+- `static/su-misura.php`: a feed (or, with `formato=ics`, a calendar) for any profession (`f`), region key (`r`) and words
+  (`q`), read from `feed/su-misura.json`, which `build.py` writes with ready-made entries. Reads only the query string,
+  stores nothing.
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
   grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.

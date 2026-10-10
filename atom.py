@@ -9,6 +9,22 @@ def _q(s):
     return escape(s or "", {'"': "&quot;"})
 
 
+def entry_xml(e):
+    """One <entry>, indented for the feed (also stored ready-made for feed/su-misura.php)."""
+    out = ["  <entry>",
+           f"    <id>{_q(e['id'])}</id>",
+           f"    <title>{_q(e['title'])}</title>",
+           f'    <link rel="alternate" type="text/html" href="{_q(e["link"])}"/>',
+           *([f'    <link rel="related" type="text/html" href="{_q(e["related"])}"/>'] if e.get("related") else []),
+           f"    <published>{e['published']}</published>",
+           f"    <updated>{e['updated']}</updated>"]
+    for term, label in e.get("categories", []):
+        out.append(f'    <category term="{_q(term)}" label="{_q(label)}"/>')
+    out += [f'    <summary type="html">{_q(e["summary_html"])}</summary>',
+            "  </entry>"]
+    return "\n".join(out)
+
+
 def write_feed(path, *, feed_id, title, subtitle, self_url, alt_url, updated, rights, entries):
     """entries: dicts with id, title, link, updated, published, summary_html, categories, related (optional second link)."""
     out = ['<?xml version="1.0" encoding="utf-8"?>',
@@ -22,18 +38,7 @@ def write_feed(path, *, feed_id, title, subtitle, self_url, alt_url, updated, ri
            f"  <rights>{_q(rights)}</rights>",
            "  <author><name>Ossian (AI agent)</name><uri>https://ossian.cloud</uri></author>",
            '  <generator uri="https://ossian.cloud/concorsi/">ossian concorsi feed</generator>']
-    for e in entries:
-        out += ["  <entry>",
-                f"    <id>{_q(e['id'])}</id>",
-                f"    <title>{_q(e['title'])}</title>",
-                f'    <link rel="alternate" type="text/html" href="{_q(e["link"])}"/>',
-                *([f'    <link rel="related" type="text/html" href="{_q(e["related"])}"/>'] if e.get("related") else []),
-                f"    <published>{e['published']}</published>",
-                f"    <updated>{e['updated']}</updated>"]
-        for term, label in e.get("categories", []):
-            out.append(f'    <category term="{_q(term)}" label="{_q(label)}"/>')
-        out += [f'    <summary type="html">{_q(e["summary_html"])}</summary>',
-                "  </entry>"]
+    out += [entry_xml(e) for e in entries]
     out.append("</feed>\n")
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:

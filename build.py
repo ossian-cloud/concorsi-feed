@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import unicodedata
 import sys
 import zoneinfo
 from urllib.parse import urlsplit
@@ -22,8 +23,8 @@ import names
 import profili
 import titles
 import what
-from atom import write_feed
-from ics import write_calendar
+from atom import entry_xml, write_feed
+from ics import event_text, write_calendar
 
 DATA = os.path.join(HERE, "data", "calls.json")
 BASE = "https://ossian.cloud/concorsi"
@@ -248,6 +249,34 @@ def write_feeds(outdir, open_, latest):
     return sets, psets
 
 
+def fold(s):
+    """Lowercase without accents: what su-misura.php compares words against."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", (s or "").lower()) if not unicodedata.combining(ch))
+
+
+def write_custom(outdir, open_, latest):
+    """Data for feed/su-misura.php: a feed or calendar for any region + profession + words.
+    One row per open call, newest first, with the filter fields and the ready-made entry and event."""
+    rows = []
+    for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
+        rows.append({"r": keys_of(c), "f": c["_prof"],
+                     "t": " ".join(fold(f'{c["title"]} {c.get("ente") or ""}').split()),
+                     "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else ""})
+    data = {"updated": latest, "base": BASE, "rights": RIGHTS,
+            "subtitle": "Concorsi aperti su inPA, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
+            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": profili.LABEL, "rows": rows}
+    tmp = os.path.join(outdir, "feed", "su-misura.json.tmp")
+    json.dump(data, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, os.path.join(outdir, "feed", "su-misura.json"))
+    shutil.copy(os.path.join(HERE, "static", "su-misura.php"), os.path.join(outdir, "feed", "su-misura.php"))
+
+
+def custom(f=None, r=None, cal=False):
+    """Relative URL (from the concorsi root) of a custom feed or calendar."""
+    q = "&".join(f"{k}={v}" for k, v in [("f", f), ("r", r), ("formato", "ics" if cal else None)] if v)
+    return f"feed/su-misura.php?{q}"
+
+
 def webcal(path):
     return f'{BASE.replace("https:", "webcal:")}/{path}'
 
@@ -359,6 +388,9 @@ def call_page(c, today, now, region_pages, profile_pages):
     for p in c["_prof"][:2]:
         if f"profilo-{p}" in profile_pages:
             follow.append(f'<a class="pill" href="../profilo/{p}.html">{e(profili.LABEL[p])}</a>')
+    if c["_prof"]:
+        p = c["_prof"][0]
+        follow.append(f'<a class="pill" href="../{e(custom(p, keys[0]))}"><span aria-hidden="true">📡</span> Feed: {e(profili.LABEL[p].lower())}, {e(label_of(keys[0]))}</a>')
     follow.append('<a class="pill" href="../">Tutti i concorsi aperti</a>')
     crumb = ([(f"regione/{keys[0]}.html", label_of(keys[0]))] if keys[0] in region_pages else []) + [("", short(short_title(c), 60))]
     body = f"""{layout.crumbs(crumb, 1)}
@@ -457,7 +489,7 @@ def write_profile_pages(outdir, psets, when):
 <p class="small">Per regione: {spread}.</p>
 <p class="small">La professione la deduco dalle parole del titolo (inPA non la indica): qualche concorso può mancare o essere fuori posto. <a href="../info.html#professioni">Come la riconosco</a>.</p>
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"profilo/{name}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
                   f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA per {label.lower()}. Scadenze, feed e calendario, dati aggiornati ogni 4 ore.",
@@ -528,11 +560,45 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 
     rows = "\n".join(row(k, label_of(k)) for k in [slug(r) for r in REGIONS] + [NAZ])
     prows = "\n".join(row(k, psets[k][0]) for k in psets)
+    popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items())
+    ropts = "\n".join(f'<option value="{k}">{e(label_of(k))}</option>' for k in [slug(r) for r in REGIONS] + [NAZ])
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
 <h1>Feed e calendari</h1>
 <p class="lead">Un <b>calendario</b> ti mostra ogni scadenza come un evento; un <b>feed</b> ti avvisa quando esce un nuovo concorso.
 Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.</p>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Calendario di tutta Italia</a><a class="pill" href="{webcal("calendario/italia.ics")}">aggiungi su iPhone e Mac</a><a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a></div>
+
+<h2 id="su-misura">Su misura: professione, regione, parole</h2>
+<p>Scegli quello che ti interessa: sotto compaiono i link al feed e al calendario, da copiare nella tua app. Il filtro sta tutto nell'indirizzo: non serve iscriversi e non salvo nulla.</p>
+<form class="custom" id="custom" action="feed/su-misura.php" method="get">
+<label>Professione <select name="f"><option value="">tutte</option>
+{popts}</select></label>
+<label>Regione <select name="r"><option value="">tutta Italia</option>
+{ropts}</select></label>
+<label>Parole nel titolo o nell'ente <input type="search" name="q" maxlength="120" placeholder="per esempio: Bologna, tempo determinato"></label>
+<button type="submit">Apri il feed</button>
+</form>
+<div class="actions" id="custom-links" hidden><a class="pill" id="cl-feed" href="#"><span aria-hidden="true">📡</span> Feed</a><a class="pill" id="cl-cal" href="#"><span aria-hidden="true">📅</span> Calendario</a><a class="pill" id="cl-webcal" href="#">aggiungi su iPhone e Mac</a></div>
+<p class="small" id="cl-url"></p>
+<script>/* show the feed and calendar links for the chosen filters; without JavaScript the form opens the feed */
+(function () {{
+  var f = document.getElementById("custom"), box = document.getElementById("custom-links");
+  function update() {{
+    var p = [];
+    ["f", "r", "q"].forEach(function (k) {{ var v = f.elements[k].value.trim(); if (v) p.push(k + "=" + encodeURIComponent(v)); }});
+    var base = new URL("feed/su-misura.php", location.href).href, q = p.join("&");
+    var feed = base + (q ? "?" + q : ""), cal = base + "?" + (q ? q + "&" : "") + "formato=ics";
+    document.getElementById("cl-feed").href = feed;
+    document.getElementById("cl-cal").href = cal;
+    document.getElementById("cl-webcal").href = cal.replace(/^https?:/, "webcal:");
+    document.getElementById("cl-url").textContent = "Indirizzo del feed: " + feed;
+    box.hidden = false;
+  }}
+  f.addEventListener("input", update); f.addEventListener("change", update); update();
+}})();
+</script>
+<p class="small">Esempi: <a href="{custom("infermieri", "veneto")}">infermieri in Veneto</a> · <a href="{custom("polizia-locale", "lombardia")}">polizia locale in Lombardia</a> · <a href="feed/su-misura.php?q=tempo%20determinato&amp;r=lazio">«tempo determinato» nel Lazio</a>.
+La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): per non perdere nulla, usa la regione da sola.</p>
 
 <h2 id="regione">Per regione</h2>
 <p>La regione è quella indicata da inPA come area geografica. Un concorso in più regioni compare in ciascuna. I concorsi nazionali o senza regione sono in «{NAZ_LABEL}».</p>
@@ -617,6 +683,7 @@ def main(outdir):
     os.makedirs(outdir, exist_ok=True)
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
     sets, psets = write_feeds(outdir, open_, latest)
+    write_custom(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
     region_keys = write_region_pages(outdir, sets, when)
     profile_keys = write_profile_pages(outdir, psets, when)

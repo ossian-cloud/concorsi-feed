@@ -24,6 +24,17 @@ def _stamp(iso):
     return iso[:19].replace("-", "").replace(":", "") + "Z"
 
 
+def event_text(ev):
+    """One folded VEVENT, CRLF-terminated (also stored ready-made for feed/su-misura.php)."""
+    day = dt.date.fromisoformat(ev["date"])
+    lines = ["BEGIN:VEVENT", f"UID:{ev['uid']}", f"DTSTAMP:{_stamp(ev['stamp'])}",
+             f"DTSTART;VALUE=DATE:{day:%Y%m%d}",
+             f"DTEND;VALUE=DATE:{day + dt.timedelta(days=1):%Y%m%d}",
+             f"SUMMARY:{_esc(ev['summary'])}", f"DESCRIPTION:{_esc(ev['description'])}",
+             f"URL:{ev['url']}", "TRANSP:TRANSPARENT", "END:VEVENT"]
+    return "\r\n".join(_fold(l) for l in lines) + "\r\n"
+
+
 def write_calendar(path, *, name, description, events):
     """events: dicts with uid, date (YYYY-MM-DD), stamp (ISO UTC), summary, description, url."""
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//ossian.cloud//concorsi-feed//IT",
@@ -31,14 +42,7 @@ def write_calendar(path, *, name, description, events):
              f"X-WR-CALNAME:{_esc(name)}", f"X-WR-CALDESC:{_esc(description)}",
              "X-WR-TIMEZONE:Europe/Rome", "REFRESH-INTERVAL;VALUE=DURATION:PT12H",
              "X-PUBLISHED-TTL:PT12H"]
-    for ev in events:
-        day = dt.date.fromisoformat(ev["date"])
-        lines += ["BEGIN:VEVENT", f"UID:{ev['uid']}", f"DTSTAMP:{_stamp(ev['stamp'])}",
-                  f"DTSTART;VALUE=DATE:{day:%Y%m%d}",
-                  f"DTEND;VALUE=DATE:{day + dt.timedelta(days=1):%Y%m%d}",
-                  f"SUMMARY:{_esc(ev['summary'])}", f"DESCRIPTION:{_esc(ev['description'])}",
-                  f"URL:{ev['url']}", "TRANSP:TRANSPARENT", "END:VEVENT"]
-    lines.append("END:VCALENDAR")
+    body = "".join(event_text(ev) for ev in events)
     with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
-        f.write("\r\n".join(_fold(l) for l in lines) + "\r\n")
+        f.write("\r\n".join(_fold(l) for l in lines) + "\r\n" + body + "END:VCALENDAR\r\n")
     os.replace(path + ".tmp", path)
