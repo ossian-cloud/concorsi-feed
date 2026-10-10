@@ -20,7 +20,9 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
   grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
-- `build.py OUTDIR`: writes the index, one page per region, Atom feeds and .ics calendars (Italy, each region, and
+- `profili.py`: guesses the professions a call is for (16 families: amministrativi, tecnici, polizia locale, infermieri...)
+  from keyword patterns on its title; inPA has no profession field. A call can be in several families or none.
+- `build.py OUTDIR`: writes the index, one page per region and per profession, Atom feeds and .ics calendars (Italy, each region, each profession, and
   "Nazionale e altre aree" for calls whose area is 'Nazionale', empty or not an Italian region), `feed.html`, `info.html`,
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped
   JSON shards, `concorso/data/<hex>.json.gz`, and served by `concorso/page.php` (the hosting caps the file count).
