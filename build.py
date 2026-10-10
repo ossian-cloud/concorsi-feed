@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(HERE, "vendor"))  # the same file, copied in the
 sys.path.insert(0, HERE)  # after it, so our layout/atom/ics win over bandi's
 import layout
 import names
+import profili
 import titles
 from atom import write_feed
 from ics import write_calendar
@@ -230,7 +231,8 @@ def write_feeds(outdir, open_, latest):
     sets = {"italia": ("Tutta Italia", open_)}
     for key in [slug(r) for r in REGIONS] + [NAZ]:
         sets[key] = (label_of(key), [c for c in open_ if key in keys_of(c)])
-    for key, (label, sel) in sets.items():
+    psets = {f"profilo-{p}": (profili.LABEL[p], [c for c in open_ if p in c["_prof"]]) for p in profili.LABEL}
+    for key, (label, sel) in {**sets, **psets}.items():
         newest = sorted(sel, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True)[:MAX_ENTRIES]
         write_feed(os.path.join(outdir, "feed", key + ".xml"), feed_id=f"tag:ossian.cloud,2026:concorsi/feed/{key}",
                    title=f"Concorsi pubblici (inPA) · {label}",
@@ -241,7 +243,7 @@ def write_feeds(outdir, open_, latest):
                        description="Scadenze per presentare domanda ai concorsi pubblici aperti su inPA. "
                                    + SOURCE + ". " + DISCLAIMER,
                        events=[event(c) for c in sel if valid_closes(c)])
-    return sets
+    return sets, psets
 
 
 def webcal(path):
@@ -304,7 +306,7 @@ def job_posting(c, url):
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
 
 
-def call_page(c, today, now, region_pages):
+def call_page(c, today, now, region_pages, profile_pages):
     """Full HTML of one call page."""
     e = html.escape
     closed = c["_closed"]
@@ -352,6 +354,9 @@ def call_page(c, today, now, region_pages):
             follow.append(f'<a class="pill" href="../regione/{k}.html">Altri concorsi: {lab}</a>')
         follow += [f'<a class="pill" href="../feed/{k}.xml"><span aria-hidden="true">📡</span> Feed: {lab}</a>',
                    f'<a class="pill" href="../calendario/{k}.ics"><span aria-hidden="true">📅</span> Scadenze: {lab}</a>']
+    for p in c["_prof"][:2]:
+        if f"profilo-{p}" in profile_pages:
+            follow.append(f'<a class="pill" href="../profilo/{p}.html">{e(profili.LABEL[p])}</a>')
     follow.append('<a class="pill" href="../">Tutti i concorsi aperti</a>')
     crumb = ([(f"regione/{keys[0]}.html", label_of(keys[0]))] if keys[0] in region_pages else []) + [("", short(short_title(c), 60))]
     body = f"""{layout.crumbs(crumb, 1)}
@@ -383,12 +388,12 @@ def call_page(c, today, now, region_pages):
     return layout.page(title, desc, body, "", 1, extra, "", SOURCE, DISCLAIMER, url)
 
 
-def write_call_pages(outdir, kept, today, now, region_pages):
+def write_call_pages(outdir, kept, today, now, region_pages, profile_pages):
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages)
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages)
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -430,8 +435,38 @@ def write_region_pages(outdir, sets, when):
     return written
 
 
-def write_sitemap(outdir, region_keys, calls):
-    urls = [(canonical(r), None) for r in ["index.html", "feed.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]]
+def write_profile_pages(outdir, psets, when):
+    """profilo/<slug>.html for every profession with at least one open call. Returns the keys written."""
+    e = html.escape
+    os.makedirs(os.path.join(outdir, "profilo"), exist_ok=True)
+    written = []
+    for key, (label, sel) in psets.items():
+        if not sel:
+            continue
+        name = key[len("profilo-"):]
+        by_region = {}
+        for c in sel:
+            for k in keys_of(c):
+                by_region[k] = by_region.get(k, 0) + 1
+        spread = " · ".join(f"{e(label_of(k))} {n}" for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
+        body = f"""{layout.crumbs([("", label)], 1)}
+<h1>Concorsi pubblici aperti: {e(label)}</h1>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="small">Per regione: {spread}.</p>
+<p class="small">La professione la deduco dalle parole del titolo (inPA non la indica): qualche concorso può mancare o essere fuori posto. <a href="../info.html#professioni">Come la riconosco</a>.</p>
+<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
+{items_html(sel, "../")}"""
+        emit_page(outdir, f"profilo/{name}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA per {label.lower()}. Scadenze, feed e calendario, dati aggiornati ogni 4 ore.",
+                  body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
+        written.append(key)
+    return written
+
+
+def write_sitemap(outdir, region_keys, profile_keys, calls):
+    urls = [(canonical(r), None) for r in ["index.html", "feed.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
+            + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -439,7 +474,7 @@ def write_sitemap(outdir, region_keys, calls):
                 + "</urlset>\n")
 
 
-def write_site_pages(outdir, sets, region_keys, when, now, today):
+def write_site_pages(outdir, sets, psets, region_keys, profile_keys, when, now, today):
     e = html.escape
     open_ = sets["italia"][1]
     n = len(open_)
@@ -448,24 +483,32 @@ def write_site_pages(outdir, sets, region_keys, when, now, today):
     newest = sorted(open_, key=lambda c: (posted(c), c["id"]), reverse=True)[:30]
     regions = "\n".join(f'<li><a href="regione/{k}.html">{e(label_of(k))}</a><small>{len(sets[k][1])}</small></li>'
                         for k in [slug(r) for r in REGIONS] + [NAZ] if k in region_keys)
+    profs = "\n".join(f'<li><a href="profilo/{k[len("profilo-"):]}.html">{e(psets[k][0])}</a><small>{len(psets[k][1])}</small></li>'
+                      for k in profile_keys)
     body = f"""<h1>Concorsi pubblici aperti, in feed e calendario</h1>
 <p class="lead">I concorsi e le selezioni delle pubbliche amministrazioni italiane pubblicati su
 <a href="https://www.inpa.gov.it/">inPA</a>, il portale del reclutamento del Dipartimento della Funzione Pubblica,
-con la scadenza di ciascuno. Per regione, in un calendario o in un feed. Gratis, senza iscrizione, senza pubblicità e senza tracciamento.
+con la scadenza di ciascuno. Per regione o per professione, in un calendario o in un feed. Gratis, senza iscrizione, senza pubblicità e senza tracciamento.
 Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>): fa fede inPA, a cui ogni voce rimanda.</p>
 <div class="stats">
 <div><b>{n}</b><span>concorsi aperti ora</span></div>
 <div><b>{len(region_keys)}</b><span>regioni e aree con concorsi</span></div>
-<div><b>{len(sets)}</b><span>feed e calendari</span></div>
+<div><b>{len(sets) + len(psets)}</b><span>feed e calendari</span></div>
 </div>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Tutte le scadenze nel calendario</a>
-<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione</a></div>
+<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a></div>
 
 <h2>Per regione</h2>
 <ul class="grid-links">
 {regions}
 </ul>
 <p class="small">«{NAZ_LABEL}» raccoglie i concorsi con area geografica «Nazionale» o senza una regione italiana. <a href="info.html">Dettagli e limiti</a>.</p>
+
+<h2>Per professione</h2>
+<ul class="grid-links">
+{profs}
+</ul>
+<p class="small">La professione la deduco dal titolo del concorso: è un aiuto, non un elenco completo. <a href="info.html#professioni">Come funziona</a>.</p>
 
 <h2>In scadenza nei prossimi 7 giorni</h2>
 {items_html(soon, "", "Nessun concorso scade nei prossimi 7 giorni.")}
@@ -478,10 +521,11 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
               body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
     def row(k, label):
-        return (f'<tr><td>{e(label)}</td><td class="n">{len(sets[k][1])}</td><td><a href="feed/{k}.xml">feed</a></td>'
+        return (f'<tr><td>{e(label)}</td><td class="n">{len({**sets, **psets}[k][1])}</td><td><a href="feed/{k}.xml">feed</a></td>'
                 f'<td><a href="calendario/{k}.ics">calendario</a></td><td><a href="{webcal(f"calendario/{k}.ics")}">aggiungi</a></td></tr>')
 
     rows = "\n".join(row(k, label_of(k)) for k in [slug(r) for r in REGIONS] + [NAZ])
+    prows = "\n".join(row(k, psets[k][0]) for k in psets)
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
 <h1>Feed e calendari</h1>
 <p class="lead">Un <b>calendario</b> ti mostra ogni scadenza come un evento; un <b>feed</b> ti avvisa quando esce un nuovo concorso.
@@ -492,6 +536,12 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
 <p>La regione è quella indicata da inPA come area geografica. Un concorso in più regioni compare in ciascuna. I concorsi nazionali o senza regione sono in «{NAZ_LABEL}».</p>
 <div class="table"><table><thead><tr><th>Regione</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
 {rows}
+</tbody></table></div>
+
+<h2 id="professione">Per professione</h2>
+<p>La professione la deduco dalle parole del titolo, perché inPA non la indica: un concorso può stare in più professioni, o in nessuna. <a href="info.html#professioni">Come funziona</a>.</p>
+<div class="table"><table><thead><tr><th>Professione</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
+{prows}
 </tbody></table></div>
 
 <h2 id="calendari">Come si aggiunge un calendario</h2>
@@ -509,7 +559,7 @@ Ogni evento dura un giorno, alla scadenza delle domande, con ente, area e link a
 ti iscrivi da loro, con il tuo indirizzo e alle loro condizioni (io non raccolgo indirizzi). Per un lettore di feed vanno bene Thunderbird, Inoreader, Feedly, NetNewsWire.
 La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">bandi pubblici</a>: funziona allo stesso modo.</p>"""
     emit_page(outdir, "feed.html", "Feed e calendari dei concorsi pubblici (inPA) · ossian.cloud",
-              "Feed Atom e calendari delle scadenze dei concorsi pubblici aperti su inPA, per regione.", body, "feed.html")
+              "Feed Atom e calendari delle scadenze dei concorsi pubblici aperti su inPA, per regione e per professione.", body, "feed.html")
 
     body = f"""{layout.crumbs([("", "Info")])}
 <div class="prose">
@@ -519,6 +569,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}»; non ho un elenco per provincia.</li>
+<li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore; le novità si leggono da inPA più volte al giorno.</li>
 </ul>
 <h2>Fonte e licenza</h2>
@@ -553,6 +604,7 @@ def main(outdir):
         if (c.get("posts") or 0) >= 9999:  # inPA's placeholder for "not fixed" (lists of eligible candidates)
             c["posts"] = None
         c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
+        c["_prof"] = profili.profiles_of(c)
         for a in c.get("attachments") or []:
             a["title"] = names.redact(a.get("title"))
     # placeholders left by an administration, not calls anyone can apply to
@@ -562,14 +614,15 @@ def main(outdir):
     open_, kept = classify(calls, now)
     os.makedirs(outdir, exist_ok=True)
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
-    sets = write_feeds(outdir, open_, latest)
+    sets, psets = write_feeds(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
     region_keys = write_region_pages(outdir, sets, when)
-    indexable = write_call_pages(outdir, kept, today, now, set(region_keys))
-    write_site_pages(outdir, sets, region_keys, when, now, today)
-    write_sitemap(outdir, region_keys, indexable)
+    profile_keys = write_profile_pages(outdir, psets, when)
+    indexable = write_call_pages(outdir, kept, today, now, set(region_keys), set(profile_keys))
+    write_site_pages(outdir, sets, psets, region_keys, profile_keys, when, now, today)
+    write_sitemap(outdir, region_keys, profile_keys, indexable)
     odd = sorted({c.get("region") or "" for c in open_ if not regions_of(c)})
-    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} feeds; non-region values: {odd}", file=sys.stderr)
+    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds; non-region values: {odd}", file=sys.stderr)
 
 
 if __name__ == "__main__":
