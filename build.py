@@ -100,7 +100,13 @@ KIND = {"concorso": "Concorso", "selezione": "Selezione", "avviso": "Avviso"}
 
 def tag_title(c, n):
     """The title for <title>: procedural boilerplate replaced by one word ('Concorso: 4 istruttori...')."""
-    t = titles.sentence_case(re.sub(r",(?=[A-Za-z])", ", ", " ".join(c["title"].split())))
+    t = " ".join(c["title"].split())
+    if t.count(" / ") >= 2:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
+        parts = [p for p in t.strip(" /").split(" / ") if p]
+        if len(parts) > 2 and len(parts[0]) < 25 and not BOILER.match(parts[0]):
+            parts = parts[1:]  # a short label for the ente, which the page shows anyway
+        t = ", ".join(parts)
+    t = titles.sentence_case(re.sub(r",(?=[A-Za-z])", ", ", t))
     who = titles.short_ente(c["ente"]) if c.get("ente") else ""
     if who and t.lower().startswith(who.lower()) and len(t) - len(who) > 20:
         t = t[len(who):].lstrip(" -–—:,.")
