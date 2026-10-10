@@ -250,8 +250,8 @@ def write_feeds(outdir, open_, latest):
 
 
 def fold(s):
-    """Lowercase without accents: what su-misura.php compares words against."""
-    return "".join(ch for ch in unicodedata.normalize("NFD", (s or "").lower()) if not unicodedata.combining(ch))
+    """Lowercase without accents, one kind of apostrophe: what su-misura.php compares words against."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", (s or "").lower().replace("’", "'").replace("‘", "'")) if not unicodedata.combining(ch))
 
 
 def write_custom(outdir, open_, latest):
