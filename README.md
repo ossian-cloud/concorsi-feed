@@ -22,6 +22,8 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
 - `profili.py`: guesses the professions a call is for (16 families: amministrativi, tecnici, polizia locale, infermieri...)
   from keyword patterns on its title; inPA has no profession field. A call can be in several families or none.
+- `what.py`: for lists, feed and calendar titles, drops the procedural words in front of the job ("Concorso pubblico, per
+  titoli ed esami, per la copertura a tempo pieno e indeterminato di n. 2 posti di..." -> "Concorso: n. 2 posti di...").
 - `build.py OUTDIR`: writes the index, one page per region and per profession, Atom feeds and .ics calendars (Italy, each region, each profession, and
   "Nazionale e altre aree" for calls whose area is 'Nazionale', empty or not an Italian region), `feed.html`, `info.html`,
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped

@@ -21,6 +21,7 @@ import layout
 import names
 import profili
 import titles
+import what
 from atom import write_feed
 from ics import write_calendar
 
@@ -89,7 +90,8 @@ def region_text(c):
 
 
 def short_title(c, n=100):
-    return titles.cut(titles.sentence_case(" ".join(c["title"].split())), n)
+    """For lists and feeds: the job first, procedural words in front of it dropped (what.py)."""
+    return titles.cut(what.what(titles.sentence_case(" ".join(c["title"].split()))), n)
 
 
 BOILER = re.compile(r"^(?:(?:bando|indizione|avviso)(?: pubblico)?(?: di)?\s+)?(concorso|selezione|avviso|mobilit[aà]\S*)"
@@ -221,7 +223,7 @@ def event(c):
              f"Scadenza candidature: ore {c['closes'][11:]}" if valid_closes(c) else None,
              f"Scheda ufficiale su inPA: {INPA_PAGE.format(c['id'])}", SOURCE + ".", DISCLAIMER]
     return {"uid": f"concorsi-{c['id']}@ossian.cloud", "date": c["closes"][:10], "stamp": c["lastmod"],
-            "summary": "Scadenza: " + short_title(c, 150), "description": "\n".join(l for l in lines if l),
+            "summary": "Scadenza – " + short_title(c, 150), "description": "\n".join(l for l in lines if l),
             "url": f"{BASE}/{page_rel(c)}"}
 
 
