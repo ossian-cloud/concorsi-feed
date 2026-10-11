@@ -6,7 +6,8 @@ import re
 
 import geo
 
-ENTE = re.compile(r"(comune|provincia|citt[aà] metropolitana) di (.+)", re.I)
+ENTE = re.compile(r"(comune|provincia|citt(?:[aà]|a['’]) metropolitana) (della |dell['’] ?|del |di )(.+)", re.I)
+ARTICLE = {"della": "La ", "dell'": "L'"}  # "Comune della Spezia" is La Spezia, "Provincia dell'Aquila" L'Aquila
 ALIAS = {"reggio emilia": "Reggio nell'Emilia", "capaccio": "Capaccio Paestum", "chiusano san domenico": "Chiusano di San Domenico"}
 JUNK = re.compile(r"\s+invia la tua candidatura\b.*|\s*\([A-Za-z]{2}\)\s*$|\s+[-–—(,].*", re.I)
 
@@ -17,12 +18,16 @@ def place_of(ente, region):
     m = ENTE.fullmatch(" ".join((ente or "").split()))
     if not m:
         return None, None
-    kind, name = m.group(1).lower(), JUNK.sub("", m.group(2)).replace("’", "'").strip()
-    if kind == "comune":
-        name = ALIAS.get(name.lower(), name)
-        reg, prov = geo.place(name, region)
-        return (name, prov) if prov else (None, None)
-    reg, prov = geo.place("", name)
-    if region and reg and geo.norm(reg) != geo.norm(region):
-        return None, None
-    return None, prov
+    kind, name = m.group(1).lower(), JUNK.sub("", m.group(3)).replace("’", "'").strip()
+    names = [name, ARTICLE.get(m.group(2).strip().lower().replace("’", "'"), "") + name]
+    for name in dict.fromkeys(names):
+        if kind == "comune":
+            name = ALIAS.get(name.lower(), name)
+            reg, prov = geo.place(name, region)
+            if prov:
+                return name, prov
+            continue
+        reg, prov = geo.place("", name)
+        if prov and not (region and reg and geo.norm(reg) != geo.norm(region)):
+            return None, prov
+    return None, None

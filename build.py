@@ -270,12 +270,13 @@ def write_custom(outdir, open_, latest):
     One row per open call, newest first, with the filter fields and the ready-made entry and event."""
     rows = []
     for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
-        rows.append({"r": keys_of(c), "f": c["_prof"],
+        rows.append({"r": keys_of(c), "f": c["_prof"], "p": slug(c["_prov"]) if c["_prov"] else "",
                      "t": " ".join(fold(f'{c["title"]} {c.get("ente") or ""}').split()),
                      "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else ""})
     data = {"updated": latest, "base": BASE, "rights": RIGHTS,
             "subtitle": "Concorsi aperti su inPA, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
-            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": profili.LABEL, "rows": rows}
+            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": profili.LABEL,
+            "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "rows": rows}
     tmp = os.path.join(outdir, "feed", "su-misura.json.tmp")
     json.dump(data, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, os.path.join(outdir, "feed", "su-misura.json"))
@@ -621,19 +622,22 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
     vrows = "\n".join(row(k, vsets[k][0]) for k in sorted(vsets, key=lambda k: (label_of(prov_region(vsets[k][1])), k)))
     popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items())
     ropts = "\n".join(f'<option value="{k}">{e(label_of(k))}</option>' for k in [slug(r) for r in REGIONS] + [NAZ])
+    vopts = "\n".join(f'<option value="{k[5:]}">{e(lab)}</option>' for k, (lab, _) in vsets.items())
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
 <h1>Feed e calendari</h1>
 <p class="lead">Un <b>calendario</b> ti mostra ogni scadenza come un evento; un <b>feed</b> ti avvisa quando esce un nuovo concorso.
 Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.</p>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Calendario di tutta Italia</a><a class="pill" href="{webcal("calendario/italia.ics")}">aggiungi su iPhone e Mac</a><a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a></div>
 
-<h2 id="su-misura">Su misura: professione, regione, parole</h2>
+<h2 id="su-misura">Su misura: professione, regione o provincia, parole</h2>
 <p>Scegli quello che ti interessa: sotto compaiono i link al feed e al calendario, da copiare nella tua app. Il filtro sta tutto nell'indirizzo: non serve iscriversi e non salvo nulla.</p>
 <form class="custom" id="custom" action="feed/su-misura.php" method="get">
 <label>Professione <select name="f"><option value="">tutte</option>
 {popts}</select></label>
 <label>Regione <select name="r"><option value="">tutta Italia</option>
 {ropts}</select></label>
+<label>Provincia (solo Comuni ed enti locali) <select name="p"><option value="">tutte</option>
+{vopts}</select></label>
 <label>Parole nel titolo o nell'ente <input type="search" name="q" maxlength="120" placeholder="per esempio: Bologna, tempo determinato"></label>
 <button type="submit">Apri il feed</button>
 </form>
@@ -644,7 +648,7 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
   var f = document.getElementById("custom"), box = document.getElementById("custom-links");
   function update() {{
     var p = [];
-    ["f", "r", "q"].forEach(function (k) {{ var v = f.elements[k].value.trim(); if (v) p.push(k + "=" + encodeURIComponent(v)); }});
+    ["f", "r", "p", "q"].forEach(function (k) {{ var v = f.elements[k].value.trim(); if (v) p.push(k + "=" + encodeURIComponent(v)); }});
     var base = new URL("feed/su-misura.php", location.href).href, q = p.join("&");
     var feed = base + (q ? "?" + q : ""), cal = base + "?" + (q ? q + "&" : "") + "formato=ics";
     document.getElementById("cl-feed").href = feed;

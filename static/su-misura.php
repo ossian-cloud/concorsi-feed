@@ -1,7 +1,8 @@
 <?php
 // A feed or calendar for any region + profession + words, from su-misura.json (written by build.py).
 // Reads nothing but the query string, stores nothing, sets no cookies.
-// ?r=region key (e.g. veneto, nazionale) &f=profession key (e.g. infermieri) &q=words &formato=ics
+// ?r=region key (e.g. veneto, nazionale) &p=province key, local authorities only (e.g. bergamo)
+// &f=profession key (e.g. infermieri) &q=words &formato=ics
 declare(strict_types=1);
 
 const MAX_ENTRIES = 200;
@@ -39,9 +40,10 @@ $get = function (string $k): string {
     if (!mb_check_encoding($s, 'UTF-8')) fail(400, 'Testo non valido (UTF-8).');
     return trim(preg_replace('/[\x{0}-\x{1F}\x{7F}\x{FFFE}\x{FFFF}]/u', ' ', $s));
 };
-$r = $get('r'); $f = $get('f'); $q = $get('q'); $fmt = $get('formato');
+$r = $get('r'); $p = $get('p'); $f = $get('f'); $q = $get('q'); $fmt = $get('formato');
 // cheap checks first: everything below needs the data file
 if ($r !== '' && !preg_match('/^[a-z-]{3,30}$/', $r)) fail(400, 'Regione non valida.');
+if ($p !== '' && !preg_match('/^[a-z-]{3,40}$/', $p)) fail(400, 'Provincia non valida.');
 if ($f !== '' && !preg_match('/^[a-z-]{3,30}$/', $f)) fail(400, 'Professione non valida.');
 if (mb_strlen($q) > 120) fail(400, 'Parametro troppo lungo.');
 if ($fmt !== '' && $fmt !== 'ics') fail(400, 'Formato non valido: ometti il parametro per il feed, usa formato=ics per il calendario.');
@@ -50,7 +52,7 @@ $cal = $fmt === 'ics';
 $file = __DIR__ . '/su-misura.json';
 $mtime = @filemtime($file);
 if ($mtime === false) fail(503, 'Dati non disponibili, riprova più tardi.');
-$etag = '"' . $mtime . '-' . (int)@filemtime(__FILE__) . '-' . md5(implode("\0", [$r, $f, $q, $fmt])) . '"';
+$etag = '"' . $mtime . '-' . (int)@filemtime(__FILE__) . '-' . md5(implode("\0", [$r, $p, $f, $q, $fmt])) . '"';
 header('ETag: ' . $etag);
 header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
 header('Cache-Control: public, max-age=1800');
@@ -62,12 +64,14 @@ $D = $raw === false ? null : json_decode($raw, true);
 unset($raw);
 if (!is_array($D)) fail(503, 'Dati non disponibili, riprova più tardi.');
 if ($r !== '' && !isset($D['regions'][$r])) fail(400, 'Regione non valida.');
+if ($p !== '' && !isset($D['provinces'][$p])) fail(400, 'Provincia non valida.');
 if ($f !== '' && !isset($D['profiles'][$f])) fail(400, 'Professione non valida.');
 $words = preg_split('/\s+/u', fold($q), -1, PREG_SPLIT_NO_EMPTY);
 
 $out = [];
 foreach ($D['rows'] as $row) {
     if (($r !== '' && !in_array($r, $row['r'], true)) || ($f !== '' && !in_array($f, $row['f'], true))) continue;
+    if ($p !== '' && $row['p'] !== $p) continue;
     foreach ($words as $w) if (!str_contains($row['t'], $w)) continue 2;
     if ($cal) {
         if ($row['e'] !== '') $out[] = $row['e'];  // calendars: every match with a deadline
@@ -77,12 +81,13 @@ foreach ($D['rows'] as $row) {
     }
 }
 
-$params = array_filter(['f' => $f, 'formato' => $fmt, 'q' => $q, 'r' => $r], fn($s) => $s !== '');
+$params = array_filter(['f' => $f, 'formato' => $fmt, 'p' => $p, 'q' => $q, 'r' => $r], fn($s) => $s !== '');
 $qs = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
 $self = $D['base'] . '/feed/su-misura.php' . ($qs !== '' ? '?' . $qs : '');
 $label = [];
 if ($f !== '') $label[] = $D['profiles'][$f];
 if ($r !== '') $label[] = $D['regions'][$r];
+if ($p !== '') $label[] = 'Enti locali in provincia di ' . $D['provinces'][$p];
 if ($q !== '') $label[] = "«{$q}»";
 $label = $label ? implode(' · ', $label) : 'Tutta Italia';
 
