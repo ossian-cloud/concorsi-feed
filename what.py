@@ -153,6 +153,51 @@ PROFILO = re.compile(r"\bprofilo(?:\s+professionale)?(?:\s+di)?\s+(?=[“\"«]?"
 STARTS = re.compile(r"(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)  # the title opens with the job itself
 
 
+def finish(t, fallback=False, quoted=False):
+    """From the text right after the job's introducer to a clean job title, or None; fallback: stricter, see FB_STARTS."""
+    t = re.sub(r"^(?:un[oa]?|n\.?\s*\d+)\s+", "", t)
+    for _ in range(5):
+        p = ROLE_FILLER.match(t)
+        if not p or not p.end():
+            break
+        t = t[p.end():]
+    s = ROLE_END.search(t)
+    if s and fallback and (FB_BAD.match(t, s.start()) or quoted and t[s.start()] in ",;" or not FB_DASH.match(t, s.start()) and t[s.start():].lstrip()[:1] in "–—-"):
+        return None  # cut in the middle of the job's own name
+    if s:
+        t = t[:s.start()]
+    s = fallback and FB_END.search(t)
+    if s and quoted:
+        return None
+    t = t[:s.start()] if s else t
+    t = TAIL.sub("", t).strip(" ,.\"'“”«»")
+    if fallback and t and (t.lower() in GENERIC or " " not in t and t[-1].lower() not in "aeiouàèéìòù"):
+        return None
+    if not (4 <= len(t) <= 80) or not JOB_NOUN.match(t) or re.search(r"\b\w*(?:destinar|assegnar|inquadrar)", t, re.I):
+        return None
+    if fallback and (len(t) > 70 or re.search(r"\d|\bart\b|\bex\b", t, re.I)):
+        return None
+    words = t.split()
+    shouting = sum(len(x) > 1 and x.isupper() for x in words) > 1  # "FUNZIONARIO TECNICO esperto", "Docenti DI PRIMA FASCIA"
+    t = " ".join(x.lower() if x.isupper() and x.replace("-", "").isalpha() and x not in ACRONYMS and (len(x) > 4 or shouting) else x for x in words)
+    return t[:1].upper() + t[1:]
+
+
+# Second chance, when no count introduces the job: "... area degli istruttori, profilo professionale “istruttore tecnico”", "N.2 “agenti di polizia locale”".
+FB_END = re.compile(r"\s+(?:ed?\s+)?(?:dell['’]\s*)?elevat|\s+pos\.|\s+in servizio|\s+\(?cat\b|\s+full|\s+con\s|\s+da\s|\s+ambito|\s+sino\s", re.I)
+FB_BAD = re.compile(r"\s+(?:per|area|di cui|nell|nel|nei)\b", re.I)  # a cut here may have eaten part of the name: "specialista per la ricerca"
+FB_DASH = re.compile(r"\s*[–—-]\s*(?:settore|area|ccnl|c\.c\.n\.l|da|presso|per|ex|cat|liv|mansione|a|con|tempo|sede|nel|ruolo|ai|riservat|comparto|famiglia|ambito|categoria|part|full|livello|codice|servizio|disciplina|direttore)\b", re.I)
+GENERIC = {"tecnico", "assistente", "operator"}
+FB_STARTS = [re.compile(p, re.I) for p in [
+    r"\b(?:profilo(?:\s+professionale)?|qualifica|qualit[àa]|figura professionale)(?:\s+di)?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "con profilo professionale di istruttore tecnico"
+    r"\b(?:posti?|unit[aà]|incarich[io]|figur[ae]|posizione)\b(?:\s+(?:in ruolo|a tempo|pieno|parziale|indeterminat\w+|determinat\w+|e|ed|/|part[- ]time|full[- ]time|\(\d+[^)]{0,25}\)|\d+ ore|a orario \w+|con (?:rapporto|contratto) di lavoro(?: subordinato)?))*"
+    r"\s+(?:di|quale|come)\s+(?=(?:n\.?\s*\d+\s+)?[“\"«]?" + JOB_NOUN.pattern + ")",  # "n. 1 posto a tempo pieno (18 ore) di istruttore"
+    r"\bincarich[io]\b.{0,150}?\b(?:s\.?m\.?i\.?|ss\.?\s?mm\.?\s?ii\.?|comma \d+),?\s+(?:di|quale)\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "incarico ... ex art. 110, comma 1, di educatore"
+    r"\bn\.?\s*\d+\s*(?=[“\"«]" + JOB_NOUN.pattern + ")",  # "N.2 “agenti di polizia locale”"
+    r"^(?:avviso|selezione|concorso|bando)(?: pubblico)? per (?=" + JOB_NOUN.pattern + ")",  # "Avviso per fisioterapista"
+]]
+
+
 def role(t):
     """The job alone, for JobPosting.title ("Istruttore tecnico"), from a title already through what();
     None unless it starts with a known job noun."""
@@ -161,22 +206,13 @@ def role(t):
     m = min(found, key=lambda m: m.start()) if found else None  # the first count in the title
     if not m:
         m = None if LIST_ONLY.search(t[:200]) else (PROFILO.search(t[:200]) if COUNTISH.search(t[:200]) else None) or STARTS.match(t)  # "n. 2 posti area degli istruttori, profilo istruttore..." / "Funzionario tecnico a tempo parziale"
-    if not m:
-        return None
-    t = t[m.end():]
-    t = re.sub(r"^(?:un[oa]?|n\.?\s*\d+)\s+", "", t)
-    for _ in range(5):
-        p = ROLE_FILLER.match(t)
-        if not p or not p.end():
-            break
-        t = t[p.end():]
-    s = ROLE_END.search(t)
-    if s:
-        t = t[:s.start()]
-    t = TAIL.sub("", t).strip(" ,.\"'“”«»")
-    if not (4 <= len(t) <= 80) or not JOB_NOUN.match(t) or re.search(r"\b\w*(?:destinar|assegnar|inquadrar)", t, re.I):
-        return None
-    words = t.split()
-    shouting = sum(len(x) > 1 and x.isupper() for x in words) > 1  # "FUNZIONARIO TECNICO esperto", "Docenti DI PRIMA FASCIA"
-    t = " ".join(x.lower() if x.isupper() and x.replace("-", "").isalpha() and x not in ACRONYMS and (len(x) > 4 or shouting) else x for x in words)
-    return t[:1].upper() + t[1:]
+    job = m and finish(t[m.end():])
+    if job or LIST_ONLY.search(t[:200]):
+        return job
+    for m in [m for rx in FB_STARTS for m in rx.finditer(t[:300])] + list(POSTS.finditer(t[:200])):
+        if m and t[:m.start()].count("“") <= t[:m.start()].count("”"):  # not after an unclosed quote: "n. 2 “istruttori ... e n. 1 “istruttore"
+            rest = t[m.end():]
+            job = finish(rest[1:] if rest[:1] in "“\"«" else rest, True, rest[:1] in "“\"«")
+            if job:
+                return job
+    return None
