@@ -25,6 +25,8 @@ import urllib.error
 import urllib.request
 
 SITEMAP = "https://www.inpa.gov.it/sitemap-bandi.xml"
+DESC_MAX = 2500     # characters of description kept (600 until 2026-10-11; those cut at 600 are re-read, REFETCH_MAX a run)
+REFETCH_MAX = 150
 PAGE = "https://www.inpa.gov.it/bandi-e-avvisi/dettaglio-bando-avviso/?concorso_id={}"
 UA = "OssianBot/0.1 (+https://ossian.cloud/concorsi/; ossian@ossian.cloud)"
 PAUSE = 3
@@ -103,7 +105,8 @@ def parse(page):
     posts = re.search(r"\d+", text(fields.get("Numero di posti", "")))
     return {
         "title": text(h1.group(1)),
-        "desc": desc[:600],
+        "desc": desc[:DESC_MAX],
+        "desc_max": DESC_MAX,
         "region": text(fields.get("Area geografica", "")),
         "eval": text(fields.get("Valutazione", "")),
         "status": text(fields.get("Stato", "")),
@@ -171,6 +174,8 @@ def main():
         del calls[cid]
     todo = [cid for cid, lm in sorted(listed.items(), key=lambda x: x[1], reverse=True)
             if cid not in calls or calls[cid].get("lastmod") != lm]
+    todo += [cid for cid in listed if cid in calls and cid not in todo and calls[cid].get("desc_max", 600) < DESC_MAX
+             and len(calls[cid].get("desc") or "") >= calls[cid].get("desc_max", 600)][:REFETCH_MAX]
     if a.max:
         todo = todo[:a.max]
     print(f"{len(listed)} listed, {len(calls)} stored, {len(todo)} to fetch", flush=True)

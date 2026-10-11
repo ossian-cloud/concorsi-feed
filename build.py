@@ -322,12 +322,29 @@ EMPLOYMENT = [("FULL_TIME", re.compile(r"tempo pieno|full[- ]time", re.I)),
               ("TEMPORARY", re.compile(r"(?<!in)determinat[oa]\b", re.I))]  # from the title only
 
 
+# Calls that aren't one job (Google: JobPosting "must only be used on pages that contain a single job posting"):
+# lists of professionals, appointments to boards, PhD places and grants, several profiles at once.
+# They keep their page, just without JobPosting. Graduatorie for one profile are hiring and stay.
+NOT_A_JOB = re.compile(
+    r"\b(formazione|istituzione|costituzione|aggiornamento|creazione|predisposizione)\s+(di\s+)?(un[oa]?\s+|dell[oae]?\s*['’]?\s*|del\s+|degli\s+)?"
+    r"(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
+    r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
+    r"|collegio (dei revisori|sindacale)|componenti? (esterni? )?(di|della|delle) commission|commissari[oe]? (di|d['’]) ?esame"
+    r"|corso di dottorato|borse? di studio|assegn[oi] di ricerca|borse? di ricerca|profili vari|vari profili|diversi profili", re.I)
+
+
 def job_posting(c, url):
-    """schema.org JobPosting (Google job search) for an open call with a usable deadline."""
+    """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
+    full = " ".join(c["title"].split())
+    if NOT_A_JOB.search(full):
+        return ""
     facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", posts_text(c)),
              ("Valutazione", c.get("eval")), ("Scadenza", c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
     e = html.escape
-    desc = (f"<p>{e(c['desc'] or titles.sentence_case(' '.join(c['title'].split())))}</p>"
+    # The same text the page shows: paragraphs kept, shouting sentence-cased.
+    text = c.get("desc") or titles.sentence_case(full)
+    text = titles.sentence_case(text) if titles.upperish(text) else text
+    desc = ("".join(f"<p>{e(p)}</p>" for p in text.split("\n") if p.strip())
             + "".join(f"<p>{k}: {e(v)}</p>" for k, v in facts if v))
     org = {"@type": "Organization", "name": ente_name(c) or "Ente non indicato"}
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
@@ -341,7 +358,6 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    full = " ".join(c["title"].split())
     job = what.role(what.what(titles.sentence_case(full)))
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
@@ -396,7 +412,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages):
         buttons.append(f'<a class="btn ghost" href="{e(c["pa_url"])}">Sito dell\'ente</a>')
     paras = "".join(f"<p>{e(p)}</p>\n" for p in desc_txt.split("\n") if p.strip())
     description = (f"<h2>Descrizione</h2>\n{paras}" + ('<p class="small">Testo abbreviato: la descrizione completa è sulla scheda ufficiale.</p>\n'
-                   if len(c.get("desc") or "") >= 600 else "")) if paras else ""
+                   if len(c.get("desc") or "") >= c.get("desc_max", 600) else "")) if paras else ""
     atts = c.get("attachments") or []
     attachments = ""
     if atts:
@@ -730,7 +746,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.</p>
 <h2>Come li leggo</h2>
 <p>Dalla mappa pubblica del sito di inPA (sitemap) e dalle sue pagine pubbliche dei concorsi, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Non interrogo le API del portale, che il suo robots.txt non consente: i link agli allegati puntano lì, ma non li apro mai.
-I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Nei titoli e nelle descrizioni sostituisco con «[nome omesso]» i nomi di persone (per esempio il tutor o il responsabile scientifico di un assegno di ricerca): il testo completo resta sulla pagina ufficiale. Le descrizioni sono abbreviate a 600 caratteri.</p>
+I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Nei titoli e nelle descrizioni sostituisco con «[nome omesso]» i nomi di persone (per esempio il tutor o il responsabile scientifico di un assegno di ricerca): il testo completo resta sulla pagina ufficiale. Le descrizioni sono abbreviate a 2.500 caratteri.</p>
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
