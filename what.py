@@ -73,7 +73,8 @@ def role(t):
     """The job alone, for JobPosting.title ("Istruttore tecnico"), from a title already through what();
     None unless it starts with a known job noun."""
     t = re.sub(r"^(?:Concorso|Selezione|Avviso|Mobilità|Stabilizzazione): ", "", t)
-    m = POSTS.search(t[:160]) or HEADCOUNT.search(t[:160])
+    found = [m for m in (POSTS.search(t[:160]), HEADCOUNT.search(t[:160])) if m]
+    m = min(found, key=lambda m: m.start()) if found else None  # the first count in the title
     if not m:
         return None
     t = t[m.end():]

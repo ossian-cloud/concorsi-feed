@@ -23,11 +23,13 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
   grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
+- `local.py`: the province of a call whose ente is a Comune, Provincia or Città metropolitana (name matched against ISTAT's
+  list of municipalities inside the call's region, via `geo.py`); other entes get none
 - `profili.py`: guesses the professions a call is for (16 families: amministrativi, tecnici, polizia locale, infermieri...)
   from keyword patterns on its title; inPA has no profession field. A call can be in several families or none.
 - `what.py`: for lists, feed and calendar titles, drops the procedural words in front of the job ("Concorso pubblico, per
   titoli ed esami, per la copertura a tempo pieno e indeterminato di n. 2 posti di..." -> "Concorso: n. 2 posti di...").
-- `build.py OUTDIR`: writes the index, one page per region and per profession, Atom feeds and .ics calendars (Italy, each region, each profession, and
+- `build.py OUTDIR`: writes the index, one page per region, per profession and per province (local authorities only), Atom feeds and .ics calendars (Italy, each region, each profession, and
   "Nazionale e altre aree" for calls whose area is 'Nazionale', empty or not an Italian region), `feed.html`, `info.html`,
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped
   JSON shards, `concorso/data/<hex>.json.gz`, and served by `concorso/page.php` (the hosting caps the file count).
@@ -37,7 +39,7 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 
 ## Limits
 
-- Region only, not province or town. A call naming several regions appears in each.
+- Province only for local authorities (Comuni, Province, Città metropolitane); other entes by region only. A call naming several regions appears in each.
 - Parsing is by regular expressions on server-rendered HTML; a layout change breaks it.
 - Descriptions are cut to 600 characters. Not every administration publishes on inPA.
 - Unofficial extract: inPA is authoritative; every page links to the official call.

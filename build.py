@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "bandi"))  # titles.py: sentence cas
 sys.path.insert(0, os.path.join(HERE, "vendor"))  # the same file, copied in the public repo
 sys.path.insert(0, HERE)  # after it, so our layout/atom/ics win over bandi's
 import layout
+import local
 import names
 import profili
 import titles
@@ -84,6 +85,11 @@ def keys_of(c):
 
 def label_of(key):
     return NAZ_LABEL if key == NAZ else REGION_BY_SLUG[key]
+
+
+def prov_label(key, vsets):
+    """Display name of a province group: "Enti locali in provincia di Bergamo"."""
+    return f"Enti locali in provincia di {vsets[key][0]}"
 
 
 def region_text(c):
@@ -235,7 +241,12 @@ def write_feeds(outdir, open_, latest):
     for key in [slug(r) for r in REGIONS] + [NAZ]:
         sets[key] = (label_of(key), [c for c in open_ if key in keys_of(c)])
     psets = {f"profilo-{p}": (profili.LABEL[p], [c for c in open_ if p in c["_prof"]]) for p in profili.LABEL}
-    for key, (label, sel) in {**sets, **psets}.items():
+    vsets = {}
+    for c in open_:
+        if c["_prov"]:
+            vsets.setdefault("prov-" + slug(c["_prov"]), (c["_prov"], []))[1].append(c)
+    vsets = dict(sorted(vsets.items()))
+    for key, (label, sel) in {**sets, **psets, **{k: (prov_label(k, vsets), v[1]) for k, v in vsets.items()}}.items():
         newest = sorted(sel, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True)[:MAX_ENTRIES]
         write_feed(os.path.join(outdir, "feed", key + ".xml"), feed_id=f"tag:ossian.cloud,2026:concorsi/feed/{key}",
                    title=f"Concorsi pubblici (inPA) · {label}",
@@ -246,7 +257,7 @@ def write_feeds(outdir, open_, latest):
                        description="Scadenze per presentare domanda ai concorsi pubblici aperti su inPA. "
                                    + SOURCE + ". " + DISCLAIMER,
                        events=[event(c) for c in sel if valid_closes(c)])
-    return sets, psets
+    return sets, psets, vsets
 
 
 def fold(s):
@@ -321,6 +332,8 @@ def job_posting(c, url):
         org["sameAs"] = f"{u.scheme}://{u.netloc}"
     addr = {"@type": "PostalAddress", "addressCountry": "IT"}
     regs = regions_of(c)
+    if c.get("_comune"):
+        addr["addressLocality"] = c["_comune"]
     if regs:
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
@@ -347,7 +360,7 @@ def job_posting(c, url):
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
 
 
-def call_page(c, today, now, region_pages, profile_pages):
+def call_page(c, today, now, region_pages, profile_pages, province_pages):
     """Full HTML of one call page."""
     e = html.escape
     closed = c["_closed"]
@@ -395,6 +408,9 @@ def call_page(c, today, now, region_pages, profile_pages):
             follow.append(f'<a class="pill" href="../regione/{k}.html">Altri concorsi: {lab}</a>')
         follow += [f'<a class="pill" href="../feed/{k}.xml"><span aria-hidden="true">📡</span> Feed: {lab}</a>',
                    f'<a class="pill" href="../calendario/{k}.ics"><span aria-hidden="true">📅</span> Scadenze: {lab}</a>']
+    pk = "prov-" + slug(c["_prov"]) if c["_prov"] else None
+    if pk in province_pages:
+        follow.append(f'<a class="pill" href="../provincia/{pk[5:]}.html">Enti locali in provincia di {e(c["_prov"])}</a>')
     for p in c["_prof"][:2]:
         if f"profilo-{p}" in profile_pages:
             follow.append(f'<a class="pill" href="../profilo/{p}.html">{e(profili.LABEL[p])}</a>')
@@ -432,12 +448,12 @@ def call_page(c, today, now, region_pages, profile_pages):
     return layout.page(title, desc, body, "", 1, extra, "", SOURCE, DISCLAIMER, url)
 
 
-def write_call_pages(outdir, kept, today, now, region_pages, profile_pages):
+def write_call_pages(outdir, kept, today, now, region_pages, profile_pages, province_pages):
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages)
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages)
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -456,7 +472,13 @@ def write_call_pages(outdir, kept, today, now, region_pages, profile_pages):
     return indexable
 
 
-def write_region_pages(outdir, sets, when):
+def prov_region(sel):
+    """Region key of a province group: the one most of its calls name."""
+    keys = [keys_of(c)[0] for c in sel]
+    return max(sorted(set(keys)), key=keys.count)
+
+
+def write_region_pages(outdir, sets, vsets, when):
     """regione/<slug>.html for every group with at least one open call. Returns the slugs written."""
     e = html.escape
     os.makedirs(os.path.join(outdir, "regione"), exist_ok=True)
@@ -466,6 +488,10 @@ def write_region_pages(outdir, sets, when):
             continue
         note = ("<p>Concorsi con area geografica «Nazionale» (amministrazioni e selezioni nazionali) o senza una regione italiana indicata.</p>\n"
                 if key == NAZ else "")
+        provs = [(k, v) for k, v in vsets.items() if prov_region(v[1]) == key]
+        if provs:
+            note += ('<p class="small">Comuni, Province e Città metropolitane, per provincia: '
+                     + " · ".join(f'<a href="../provincia/{k[5:]}.html">{e(v[0])}</a> {len(v[1])}' for k, v in provs) + ".</p>\n")
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
@@ -508,9 +534,31 @@ def write_profile_pages(outdir, psets, when):
     return written
 
 
-def write_sitemap(outdir, region_keys, profile_keys, calls):
+def write_province_pages(outdir, vsets, when):
+    """provincia/<slug>.html: open calls of the local authorities (local.py) in each province. Returns the keys."""
+    e = html.escape
+    os.makedirs(os.path.join(outdir, "provincia"), exist_ok=True)
+    for key, (name, sel) in vsets.items():
+        rk = prov_region(sel)
+        label = prov_label(key, vsets)
+        comuni = sorted({c["_comune"] for c in sel if c["_comune"]})
+        body = f"""{layout.crumbs([(f"regione/{rk}.html", label_of(rk)), ("", f"Provincia di {name}")], 1)}
+<h1>Concorsi dei Comuni in provincia di {e(name)}</h1>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="small">Qui ci sono solo gli enti locali, di cui conosco la sede dal nome. Aziende sanitarie, ospedali, università e altri enti della zona sono nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a>. <a href="../info.html#province">Come funziona</a>.</p>
+{f'<p class="small">Comuni: {e(", ".join(comuni))}.</p>' if comuni else ""}
+<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
+{items_html(sel, "../")}"""
+        emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi Comuni in provincia di {name}: {len(sel)} aperti",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, aggiornati ogni 4 ore.",
+                  body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
+    return list(vsets)
+
+
+def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
     urls = [(canonical(r), None) for r in ["index.html", "feed.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
-            + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys]]
+            + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -518,7 +566,7 @@ def write_sitemap(outdir, region_keys, profile_keys, calls):
                 + "</urlset>\n")
 
 
-def write_site_pages(outdir, sets, psets, region_keys, profile_keys, when, now, today):
+def write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today):
     e = html.escape
     open_ = sets["italia"][1]
     n = len(open_)
@@ -537,7 +585,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 <div class="stats">
 <div><b>{n}</b><span>concorsi aperti ora</span></div>
 <div><b>{len(region_keys)}</b><span>regioni e aree con concorsi</span></div>
-<div><b>{len(sets) + len(psets)}</b><span>feed e calendari</span></div>
+<div><b>{len(sets) + len(psets) + len(vsets)}</b><span>feed e calendari</span></div>
 </div>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Tutte le scadenze nel calendario</a>
 <a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a></div>
@@ -546,7 +594,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 <ul class="grid-links">
 {regions}
 </ul>
-<p class="small">«{NAZ_LABEL}» raccoglie i concorsi con area geografica «Nazionale» o senza una regione italiana. <a href="info.html">Dettagli e limiti</a>.</p>
+<p class="small">«{NAZ_LABEL}» raccoglie i concorsi con area geografica «Nazionale» o senza una regione italiana. Per i Comuni c'è anche la provincia: la trovi nella pagina della regione. <a href="info.html">Dettagli e limiti</a>.</p>
 
 <h2>Per professione</h2>
 <ul class="grid-links">
@@ -565,11 +613,12 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
               body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
     def row(k, label):
-        return (f'<tr><td>{e(label)}</td><td class="n">{len({**sets, **psets}[k][1])}</td><td><a href="feed/{k}.xml">feed</a></td>'
+        return (f'<tr><td>{e(label)}</td><td class="n">{len({**sets, **psets, **vsets}[k][1])}</td><td><a href="feed/{k}.xml">feed</a></td>'
                 f'<td><a href="calendario/{k}.ics">calendario</a></td><td><a href="{webcal(f"calendario/{k}.ics")}">aggiungi</a></td></tr>')
 
     rows = "\n".join(row(k, label_of(k)) for k in [slug(r) for r in REGIONS] + [NAZ])
     prows = "\n".join(row(k, psets[k][0]) for k in psets)
+    vrows = "\n".join(row(k, vsets[k][0]) for k in sorted(vsets, key=lambda k: (label_of(prov_region(vsets[k][1])), k)))
     popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items())
     ropts = "\n".join(f'<option value="{k}">{e(label_of(k))}</option>' for k in [slug(r) for r in REGIONS] + [NAZ])
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
@@ -622,6 +671,12 @@ La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): 
 {prows}
 </tbody></table></div>
 
+<h2 id="provincia">Per provincia: Comuni ed enti locali</h2>
+<p>I concorsi di Comuni, Province e Città metropolitane, di cui conosco la sede dal nome dell'ente. Gli altri enti (aziende sanitarie, università, ministeri) restano solo nella regione. <a href="info.html#province">Come funziona</a>.</p>
+<div class="table"><table><thead><tr><th>Provincia</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
+{vrows}
+</tbody></table></div>
+
 <h2 id="calendari">Come si aggiunge un calendario</h2>
 <div class="cards">
 <div class="card"><h3>Google Calendar</h3><p>Dal computer: <b>Altri calendari → + → Da URL</b>, incolla l'indirizzo del calendario.</p></div>
@@ -637,7 +692,7 @@ Ogni evento dura un giorno, alla scadenza delle domande, con ente, area e link a
 ti iscrivi da loro, con il tuo indirizzo e alle loro condizioni (io non raccolgo indirizzi). Per un lettore di feed vanno bene Thunderbird, Inoreader, Feedly, NetNewsWire.
 La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">bandi pubblici</a>: funziona allo stesso modo.</p>"""
     emit_page(outdir, "feed.html", "Feed e calendari dei concorsi pubblici (inPA) · ossian.cloud",
-              "Feed Atom e calendari delle scadenze dei concorsi pubblici aperti su inPA, per regione e per professione.", body, "feed.html")
+              "Feed Atom e calendari delle scadenze dei concorsi pubblici aperti su inPA, per regione, provincia e professione.", body, "feed.html")
 
     body = f"""{layout.crumbs([("", "Info")])}
 <div class="prose">
@@ -646,7 +701,8 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <ul>
 <li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
-<li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}»; non ho un elenco per provincia.</li>
+<li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
+<li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università, ministeri e gli altri enti non hanno una provincia: la loro sede non si ricava con sicurezza dal nome. Le regole sono nel codice (<code>local.py</code>).</li>
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore; le novità si leggono da inPA più volte al giorno.</li>
 </ul>
@@ -658,7 +714,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Nei titoli e nelle descrizioni sostituisco con «[nome omesso]» i nomi di persone (per esempio il tutor o il responsabile scientifico di un assegno di ricerca): il testo completo resta sulla pagina ufficiale. Le descrizioni sono abbreviate a 600 caratteri.</p>
 <h2>Limiti, detti chiaramente</h2>
 <ul>
-<li>Solo la regione, non la provincia né il comune; per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
+<li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>Fa fede inPA</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale.</li>
 <li>Non pubblico dati di persone. Se una voce ti riguarda o vuoi che sia tolta, scrivi a <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a>: la rimuovo.</li>
@@ -683,6 +739,8 @@ def main(outdir):
             c["posts"] = None
         c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
         c["_prof"] = profili.profiles_of(c)
+        regs = regions_of(c)
+        c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
         for a in c.get("attachments") or []:
             a["title"] = names.redact(a.get("title"))
     # placeholders left by an administration, not calls anyone can apply to
@@ -692,16 +750,17 @@ def main(outdir):
     open_, kept = classify(calls, now)
     os.makedirs(outdir, exist_ok=True)
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
-    sets, psets = write_feeds(outdir, open_, latest)
+    sets, psets, vsets = write_feeds(outdir, open_, latest)
     write_custom(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
-    region_keys = write_region_pages(outdir, sets, when)
+    region_keys = write_region_pages(outdir, sets, vsets, when)
     profile_keys = write_profile_pages(outdir, psets, when)
-    indexable = write_call_pages(outdir, kept, today, now, set(region_keys), set(profile_keys))
-    write_site_pages(outdir, sets, psets, region_keys, profile_keys, when, now, today)
-    write_sitemap(outdir, region_keys, profile_keys, indexable)
+    province_keys = write_province_pages(outdir, vsets, when)
+    indexable = write_call_pages(outdir, kept, today, now, set(region_keys), set(profile_keys), set(province_keys))
+    write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today)
+    write_sitemap(outdir, region_keys, profile_keys, province_keys, indexable)
     odd = sorted({c.get("region") or "" for c in open_ if not regions_of(c)})
-    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds; non-region values: {odd}", file=sys.stderr)
+    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds, {len(vsets)} province feeds; non-region values: {odd}", file=sys.stderr)
 
 
 if __name__ == "__main__":
