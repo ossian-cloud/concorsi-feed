@@ -303,6 +303,11 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento."):
     return '<ul class="items">\n' + "\n".join(lis) + "\n</ul>" if lis else f"<p>{empty}</p>"
 
 
+EMPLOYMENT = [("FULL_TIME", re.compile(r"tempo pieno|full[- ]time", re.I)),
+              ("PART_TIME", re.compile(r"tempo parziale|part[- ]time", re.I)),
+              ("TEMPORARY", re.compile(r"(?<!in)determinat[oa]\b", re.I))]  # from the title only
+
+
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline."""
     facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", posts_text(c)),
@@ -320,11 +325,16 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": short_title(c, 110), "description": desc,
+    full = " ".join(c["title"].split())
+    job = what.role(what.what(titles.sentence_case(full)))
+    ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
     if c.get("posts"):
         ld["totalJobOpenings"] = c["posts"]
+    kinds = [k for k, rx in EMPLOYMENT if rx.search(full)]
+    if kinds:
+        ld["employmentType"] = kinds
     lo, hi = c.get("pay_min"), c.get("pay_max")
     if lo or hi:
         val = {"@type": "QuantitativeValue", "unitText": "YEAR"}
