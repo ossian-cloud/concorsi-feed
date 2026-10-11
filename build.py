@@ -272,7 +272,8 @@ def write_custom(outdir, open_, latest):
     for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
         rows.append({"r": keys_of(c), "f": c["_prof"], "p": slug(c["_prov"]) if c["_prov"] else "",
                      "t": " ".join(fold(f'{c["title"]} {c.get("ente") or ""}').split()),
-                     "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else ""})
+                     "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else "",
+                     "w": [short_title(c, 110), c["id"], ente_short(c, 60), c["closes"] if valid_closes(c) else ""]})
     data = {"updated": latest, "base": BASE, "rights": RIGHTS,
             "subtitle": "Concorsi aperti su inPA, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
             "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": profili.LABEL,
@@ -280,7 +281,8 @@ def write_custom(outdir, open_, latest):
     tmp = os.path.join(outdir, "feed", "su-misura.json.tmp")
     json.dump(data, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, os.path.join(outdir, "feed", "su-misura.json"))
-    shutil.copy(os.path.join(HERE, "static", "su-misura.php"), os.path.join(outdir, "feed", "su-misura.php"))
+    for php in ("su-misura.php", "widget.php"):
+        shutil.copy(os.path.join(HERE, "static", php), os.path.join(outdir, "feed", php))
 
 
 def custom(f=None, r=None, cal=False):
@@ -643,6 +645,8 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
 </form>
 <div class="actions" id="custom-links" hidden><a class="pill" id="cl-feed" href="#"><span aria-hidden="true">📡</span> Feed</a><a class="pill" id="cl-cal" href="#"><span aria-hidden="true">📅</span> Calendario</a><a class="pill" id="cl-webcal" href="#">aggiungi su iPhone e Mac</a></div>
 <p class="small" id="cl-url"></p>
+<p class="small" id="cl-embed-p" hidden>Da incollare nel tuo sito, per mostrare questi concorsi (<a href="#nel-tuo-sito">come funziona</a>):<br>
+<textarea id="cl-embed" rows="3" cols="60" readonly style="width:100%;max-width:40rem;font-size:.85rem" aria-label="Codice da incollare nel tuo sito"></textarea></p>
 <script>/* show the feed and calendar links for the chosen filters; without JavaScript the form opens the feed */
 (function () {{
   var f = document.getElementById("custom"), box = document.getElementById("custom-links");
@@ -655,6 +659,9 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
     document.getElementById("cl-cal").href = cal;
     document.getElementById("cl-webcal").href = cal.replace(/^https?:/, "webcal:");
     document.getElementById("cl-url").textContent = "Indirizzo del feed: " + feed;
+    document.getElementById("cl-embed").value = '<iframe src="' + new URL("feed/widget.php", location.href).href + (q ? "?" + q : "")
+      + '" title="Concorsi pubblici aperti" height="640" loading="lazy" style="width:100%;border:1px solid #d5dedf"></iframe>';
+    document.getElementById("cl-embed-p").hidden = false;
     box.hidden = false;
   }}
   f.addEventListener("input", update); f.addEventListener("change", update); update();
@@ -680,6 +687,14 @@ La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): 
 <div class="table"><table><thead><tr><th>Provincia</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
 {vrows}
 </tbody></table></div>
+
+<h2 id="nel-tuo-sito">Nel tuo sito o nella tua newsletter</h2>
+<p>Se gestisci un sito (un Informagiovani, un ordine professionale, un sindacato, un Comune) puoi mostrare l'elenco dei concorsi aperti che ti interessano, sempre aggiornato, senza ricopiarlo a mano.
+Scegli i filtri nel modulo <a href="#su-misura">qui sopra</a> e copia il codice che compare: è un riquadro (iframe) con i concorsi dalla scadenza più vicina, i primi 10 (per cambiare il numero aggiungi <code>&amp;n=20</code>, fino a 50).
+Il riquadro non usa cookie, script né risorse esterne e non raccoglie dati di chi lo guarda. Ogni concorso rimanda alla sua pagina qui, con il link alla scheda ufficiale su inPA.</p>
+<p class="small">Esempio: infermieri in Veneto.</p>
+<iframe src="feed/widget.php?f=infermieri&amp;r=veneto&amp;n=5" title="Esempio: concorsi aperti per infermieri in Veneto" height="560" loading="lazy" style="width:100%;max-width:40rem;border:1px solid #d5dedf"></iframe>
+<p class="small">Per una newsletter, dove i riquadri non funzionano, usa il feed: molti servizi di newsletter sanno leggere un feed e inserire le novità da soli.</p>
 
 <h2 id="calendari">Come si aggiunge un calendario</h2>
 <div class="cards">

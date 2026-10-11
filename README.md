@@ -20,6 +20,8 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 - `static/su-misura.php`: a feed (or, with `formato=ics`, a calendar) for any profession (`f`), region key (`r`) and words
   (`q`), read from `feed/su-misura.json`, which `build.py` writes with ready-made entries. Reads only the query string,
   stores nothing.
+- `static/widget.php`: the same filters (plus `n`, 1-50) as a small HTML list for an iframe on other sites, soonest
+  deadline first, calls whose deadline passed since the last build left out. No scripts, cookies or external resources.
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
   grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
