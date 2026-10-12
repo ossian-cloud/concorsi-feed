@@ -103,7 +103,7 @@ def short_title(c, n=100):
     kind = next((i for i, p in enumerate(parts) if re.match(r"(?:concorso|selezione|avviso|mobilit)", p, re.I)), None)
     if len(parts) > 2 and kind is not None:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
         t = ", ".join(parts[kind:])  # what's before the procedure labels the ente, which is shown anyway
-    return titles.cut(what.what(titles.sentence_case(t)), n)
+    return titles.cut(what.what(titles.sentence_case(t), c.get("ente")), n)
 
 
 def ente_name(c):
@@ -347,7 +347,7 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    job = what.role(what.what(titles.sentence_case(full)))
+    job = what.role(what.what(titles.sentence_case(full), c.get("ente")))
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}

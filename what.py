@@ -48,7 +48,7 @@ def kind_of(word):
             "Interpello" if word.startswith("interpello") else "Selezione" if word.startswith(("selezione", "procedura")) else "Stabilizzazione" if word.startswith("stabil") else "Avviso")
 
 
-LEAD = re.compile(r"\s[–—-]\s*|[.:_]\s*|,\s+|\s*-(?=[a-z])")  # "Comune di Bergamo – ", "Comune di X. ", "Comune di X, concorso"
+LEAD = re.compile(r"\s[–—-]\s*|[.:_]\s*|,\s+|\s*-\s*(?=[A-Za-z])")  # "Comune di Bergamo – ", "Comune di X. ", "Comune di X, concorso"
 ENTE = re.compile(r"(?:comune|provincia|citt[àa]|unione|azienda|asl|asst|ausl|università|universita|conservatorio|accademia|istituto|"
                   r"fondazione|regione|ministero|i\.?r\.?c\.?c\.?s\.?|aou|aulss|ulss|ats|asp|ente|consorzio|comunità|camera|politecnico|scuola)\b", re.I)
 KEEP_UPPER = {"AFAM", "ASL", "ASP", "ASST", "OSS", "ICT", "CED", "PNRR", "ATA", "SUAP", "URP", "ZTL", "CCNL", "DPR", "ISEE", "IRCCS", "AOU", "AUSL", "ULSS", "AULSS", "UOC", "UOSD", "USL"}
@@ -97,17 +97,27 @@ def contract(dropped):
     return " a tempo " + " e ".join(kinds) if kinds else ""
 
 
-def what(t):
+def ours(prefix, ente):
+    """Whether the text in front of the procedure names the call's own ente: "Senago-Concorso..." for Comune di Senago."""
+    w = re.findall(r"\w{3,}", prefix.lower())
+    if not (ente and w):
+        return False
+    words = re.findall(r"\w+", ente.lower())
+    initials = "".join(x[0] for x in words if x not in titles.SMALL and len(x) > 1)  # Acer, Arpa
+    return w[0] in words or len(w[0]) >= 3 and initials.startswith(w[0])
+
+
+def what(t, ente=None):
     t = " ".join(t.split())
     dropped = []
     if not KIND.match(t):  # an ente's name in front, then the procedure
         for lead in LEAD.finditer(t[:90]):
             comma = lead.group(0)[0] in ",-"  # a bare comma or hyphen: only after an ente's name
-            if lead.start() >= 3 and KIND.match(t[lead.end():]) and (not comma or ENTE.match(t)):
+            if lead.start() >= 3 and KIND.match(t[lead.end():]) and (not comma or ENTE.match(t) or ours(t[:lead.start()], ente)):
                 t = t[lead.end():]
                 break
         else:  # "Accademia belle arti urbino selezione pubblica ...": no separator, but an ente word first
-            m = ENTE.match(t)
+            m = ENTE.match(t) or ours(t[:40], ente)
             k = m and re.search(r"\s(?=(?:selezione|concorso|avviso|bando|procedura|mobilit[aà])\s)", t[:80], re.I)
             before = k and t[:k.start()].split()[-1].lower().strip(",.:")
             if k and not re.search(r"\d", t[:k.start()]) and before not in titles.SMALL:
