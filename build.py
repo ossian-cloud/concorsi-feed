@@ -321,6 +321,19 @@ _DET = r"(?:in)?determinat[oa]"  # "tempo indeterminato e pieno", "pieno e deter
 EMPLOYMENT = [("FULL_TIME", re.compile(rf"tempo (?:{_DET} e )?pieno|\bpieno e {_DET}|full[- ]time", re.I)),
               ("PART_TIME", re.compile(rf"tempo (?:{_DET} e )?parziale|\bparziale e {_DET}|part[- ]time", re.I)),
               ("TEMPORARY", re.compile(r"(?<!in)determinat[oa]\b", re.I))]  # from the title only
+REQUIREMENT = re.compile(r"in servizio|prestat|dipendent|requisit", re.I)  # "essere in servizio a tempo pieno": who may apply, not the job
+
+
+def employment(c):
+    """schema.org employmentType from the title; if it says nothing, full or part time from the description,
+    only when it names exactly one of the two and not as a requirement."""
+    full = " ".join(c["title"].split())
+    kinds = [k for k, rx in EMPLOYMENT if rx.search(full)]
+    if kinds:
+        return kinds
+    text = c.get("desc") or ""
+    kinds = [k for k, rx in EMPLOYMENT[:2] if any(not REQUIREMENT.search(text[max(0, m.start() - 50):m.start()]) for m in rx.finditer(text))]
+    return kinds if len(kinds) == 1 else []
 
 
 # Calls that aren't one job (Google: JobPosting "must only be used on pages that contain a single job posting"):
@@ -365,7 +378,7 @@ def job_posting(c, url):
           "jobLocation": {"@type": "Place", "address": addr}}
     if c.get("posts"):
         ld["totalJobOpenings"] = c["posts"]
-    kinds = [k for k, rx in EMPLOYMENT if rx.search(full)]
+    kinds = employment(c)
     if kinds:
         ld["employmentType"] = kinds
     lo, hi = c.get("pay_min"), c.get("pay_max")
