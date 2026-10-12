@@ -317,8 +317,9 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento."):
     return '<ul class="items">\n' + "\n".join(lis) + "\n</ul>" if lis else f"<p>{empty}</p>"
 
 
-EMPLOYMENT = [("FULL_TIME", re.compile(r"tempo pieno|full[- ]time", re.I)),
-              ("PART_TIME", re.compile(r"tempo parziale|part[- ]time", re.I)),
+_DET = r"(?:in)?determinat[oa]"  # "tempo indeterminato e pieno", "pieno e determinato"
+EMPLOYMENT = [("FULL_TIME", re.compile(rf"tempo (?:{_DET} e )?pieno|\bpieno e {_DET}|full[- ]time", re.I)),
+              ("PART_TIME", re.compile(rf"tempo (?:{_DET} e )?parziale|\bparziale e {_DET}|part[- ]time", re.I)),
               ("TEMPORARY", re.compile(r"(?<!in)determinat[oa]\b", re.I))]  # from the title only
 
 

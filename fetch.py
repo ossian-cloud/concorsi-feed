@@ -178,7 +178,7 @@ def main():
              and len(calls[cid].get("desc") or "") >= calls[cid].get("desc_max", 600)][:REFETCH_MAX]
     if a.max:
         todo = todo[:a.max]
-    print(f"{len(listed)} listed, {len(calls)} stored, {len(todo)} to fetch", flush=True)
+    print(f"{len(listed)} listed (newest lastmod {max(listed.values(), default='-')}), {len(calls)} stored, {len(todo)} to fetch", flush=True)
     done = errors = 0
     for cid in todo:
         try:
