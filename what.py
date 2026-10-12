@@ -11,13 +11,17 @@ KIND = re.compile(r"(?:(?:bando|indizione|avviso|avvio|riapertura (?:dei )?termi
                   r"(concorso|concorsi|selezione|procedura (?:concorsuale|selettiva|comparativa)|mobilit[aà]|stabilizzazione|avviso|bando|interpello)\b", re.I)
 FILLERS = [re.compile(p, re.I) for p in [
     r"(?:anche|intercompartimentale|intracompartimentale|esterna|interna|esterno|interno)\b(?:\s+e\s+(?:compartimentale|interuniversitaria))?",
+    r"(?:del|dei) compart[oi] (?:funzioni locali|sanit[aà]|universit[aà]|istruzione e ricerca|funzioni centrali)(?:\s+(?:e|ed)\s+intercompartimentale)?\b",
+    r"(?:e|ed)\s+(?:interregionale|intercompartimentale|compartimentale|non vincolante|volontaria|esterna)\b",  # "mobilità regionale ed interregionale"
+    r"(?:e|ed)\s+(?:per\s+)?(?:soli\s+)?(?:titoli|esami|esame|colloquio|prova[- ]colloquio|valutazione (?:dei )?titoli)\b",  # "per titoli e per esami"
+    r"(?:e|ed)\s+(?:dell['’]\s*|del(?:l['’])?\s+)?art\.?\s*\d+\s+del\s+(?:CCNL(?:\s+\d{4}/\d{4})?(?:\s+del\s+comparto\s+\w+)?|R\.O\.U\.S\.)",  # "e dell’art. 57 del CCNL 2006/2009"
     r"(?:ex\.?\s+)?(?:art\.?|articolo)\s*30\b.{0,80}?\b165(?:/\d{2,4})?(?=\W)",  # "art. 30, comma 2-bis D.Lgs. 165/2001"
     r"nel\s+comune\s+di\s+(?-i:[A-Z]\w+(?:\s+[A-Z]\w+)?),",
-    r"(?:pubblic[oa]|ordinari[oa]|unic[oa]|esterna|volontaria|interna|(?:tra|fra) (?:enti(?: pubblici)?|p\.?a\.?|pp\.?aa\.?|pubbliche amministrazioni|amministrazioni pubbliche|amministrazioni)"
+    r"(?:pubblic[oa]|ordinari[oa]|unic[oa]|esterna|volontaria|interna|(?:tra|fra) (?:aziende ed? enti|enti(?: pubblici)?|p\.?a\.?|pp\.?aa\.?|pubbliche amministrazioni|amministrazioni pubbliche|amministrazioni)"
     r"|unificat[oa]|congiunt[oa]|regionale|interregionale|nazionale|comparativa|selettiva|concorsuale|straordinari[oa]|esplorativ[oa]|in entrata)\b",
     r"(?:di|per|mediante|ai fini del(?:la)?|finalizzat[oa] al(?:la|l['’])?|volt[oa] al(?:la|l['’])?)\b",
     r"(?:soli\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale))(?:\s+(?:e|ed)\s+(?:eventuale\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale)))?(?:\s+pratic[oa])?\b",
-    r"\(?(?:ai sensi|ex\.?) (?:dell['’]|degli |dell )?art.{0,80}?(?:\d{4}|(?:165|267)(?:/\d{2,4})?)\b(?:,?\s*n\.?\s*\d+\b)?\)?",
+    r"\(?(?:ai sensi|ex\.?) (?:dell['’]\s*|degli |dell )?art.{0,80}?(?:\d{4}|(?:165|267)(?:/\d{2,4})?)\b(?:,?\s*n\.?\s*\d+\b)?\)?",
     r"(?:assunzione|copertura)(?=\s+(?:di|dei|delle|della|a tempo)\b.*(?:\d|\bun[oa]?\b|\bposti?\b|\bunit))",
     r"(?:la copertura|la stabilizzazione|l['’]\s*assunzione|il reclutamento|il conferimento|l['’]affidamento|la stipula)\b",
     r"(?:a\s+)?tempo (?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?(?:\s*(?:e|ed|/)?\s*(?:a tempo\s+)?(?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?)*",
@@ -29,10 +33,11 @@ FILLERS = [re.compile(p, re.I) for p in [
     r"a(?=\s+n\.?\s*\d)",  # "a n. 1 posto"
     r"(?:e|ed)\s+(?=a tempo|a orario|orario|a pieno|pieno)",  # "e a orario pieno": the rest of a contract phrase
     r"(?:a\s+)?orario\s+(?:pieno|ridotto|parziale)(?:\s*(?:e|ed)\s+(?:indeterminato|determinato))?",
-    r"(?:e\s+)?(?:s\.?\s?m\.?\s?i\.?|ss\.?\s?mm\.?\s?ii\.?)",
+    r"(?:e\s+)?(?:s\.?\s?m\.?\s?i\.?|ss\.?\s?mm\.?\s?(?:e\s+)?ii\.?)",
     r"n?\.?\s*\d+/\d+\.?(?=\s)",  # a reference number, "43994/2026."
     r"[,:;.–—/-]",
 ]]
+LEFTOVER = re.compile(r"(?:e|ed|o|del|della|dei|degli|ai sensi|art\.?|ex)(?=\s)|dell['’]", re.I)  # a phrase cut in half: keep the title whole
 RANK = ["Avviso", "Interpello", "Selezione", "Stabilizzazione", "Concorso", "Mobilità"]  # the more specific word wins
 
 
@@ -121,7 +126,7 @@ def what(t):
                 if f and f.end():
                     dropped.append(f.group(0))
                     rest, changed = rest[f.end():].lstrip(), True
-    if kind is None or len(rest) < 15 or (len(t) - len(rest) < 12 and not re.match(r"(?:n\.?|nr\.?|\d+|un[oa]?)\s(?!\s*\d+\s+del\b)", rest, re.I)):
+    if kind is None or len(rest) < 15 or LEFTOVER.match(rest) or (len(t) - len(rest) < 12 and not re.match(r"(?:n\.?|nr\.?|\d+|un[oa]?)\s(?!\s*\d+\s+del\b)", rest, re.I)):
         t = unshout(t)
         return t[:1].upper() + t[1:]
     m = MIDDLE.search(rest)
