@@ -97,38 +97,13 @@ def region_text(c):
 
 
 def short_title(c, n=100):
-    """For lists and feeds: the job first, procedural words in front of it dropped (what.py)."""
-    return titles.cut(what.what(titles.sentence_case(" ".join(c["title"].split()))), n)
-
-
-BOILER = re.compile(r"^(?:(?:bando|indizione|avviso)(?: pubblico)?(?: di)?\s+)?(concorso|selezione|avviso|mobilit[aà]\S*)"
-                    r"(?:\s+(?:pubblic[oa]|ordinario|unico|esterna|volontaria|esterna volontaria|volontaria esterna))*,?"
-                    r"(?:\s+(?:per|mediante)\s+(?:soli\s+)?(?:titoli|esami|colloquio)(?:,?\s+(?:e|ed)\s+(?:esami|colloquio|prova \S+))?,?)?"
-                    r"\s+(?:per\s+)?(?:la copertura di|l['’]assunzione(?: a tempo \S+(?: e \S+)?)? di|il reclutamento(?: a tempo \S+)? di|il conferimento di)?\s*", re.I)
-KIND = {"concorso": "Concorso", "selezione": "Selezione", "avviso": "Avviso"}
-
-
-def tag_title(c, n):
-    """The title for <title>: procedural boilerplate replaced by one word ('Concorso: 4 istruttori...')."""
+    """For lists, feeds and <title>: the job first, procedural words in front of it dropped (what.py)."""
     t = " ".join(c["title"].split())
-    if t.count(" / ") >= 2:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
-        parts = [p for p in t.strip(" /").split(" / ") if p]
-        if len(parts) > 2 and len(parts[0]) < 25 and not BOILER.match(parts[0]):
-            parts = parts[1:]  # a short label for the ente, which the page shows anyway
-        t = ", ".join(parts)
-    t = titles.sentence_case(re.sub(r",(?=[A-Za-z])", ", ", t))
-    who = titles.short_ente(c["ente"]) if c.get("ente") else ""
-    if who and t.lower().startswith(who.lower()) and len(t) - len(who) > 20:
-        t = t[len(who):].lstrip(" -–—:,.")
-        t = t[:1].upper() + t[1:]
-    m = BOILER.match(t)
-    if m and len(t) - m.end() > 12 and not t[m.end():].lower().startswith("ai sensi"):
-        word = m.group(1).lower()
-        kind = "Mobilità" if word.startswith("mobilit") else KIND[word]
-        rest = t[m.end():]
-        rest = titles.sentence_case(rest[:120]) if titles.upperish(rest[:60]) else rest
-        t = f"{kind}: {rest[:1].lower() + rest[1:] if not rest[:2].isupper() else rest}"
-    return titles.cut(t, n)
+    parts = t.split(" / ")
+    kind = next((i for i, p in enumerate(parts) if re.match(r"(?:concorso|selezione|avviso|mobilit)", p, re.I)), None)
+    if len(parts) > 2 and kind is not None:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
+        t = ", ".join(parts[kind:])  # what's before the procedure labels the ente, which is shown anyway
+    return titles.cut(what.what(titles.sentence_case(t)), n)
 
 
 def ente_name(c):
@@ -469,7 +444,11 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages):
     tail = (f": scadenza {day(c['closes'])}" if valid_closes(c) and not closed else
             f": chiuso il {day(c['closes'])}" if expired else ": non più su inPA" if closed else "")
     room = min(60, max(36, 90 - len(tail) - 3 - len(who)))
-    title = tag_title(c, room) + (f" - {who}" if who else "") + tail
+    title = short_title(c, 300)
+    if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
+        rest = title[len(who):].lstrip(" -–—:,._")
+        title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
+    title = titles.cut(title, room if who else 90 - len(tail)) + (f" - {who}" if who else "") + tail
     meta = [posts_text(c), ente_short(c, 60), region_text(c), "scadenza " + deadline_short(c) if valid_closes(c) else None,
             c.get("eval") and "valutazione: " + c["eval"].lower()]
     desc = short(", ".join(m for m in meta if m) + ".", 200)
