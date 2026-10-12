@@ -23,7 +23,7 @@ FILLERS = [re.compile(p, re.I) for p in [
     r"(?:soli\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale))(?:\s+(?:e|ed)\s+(?:eventuale\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale)))?(?:\s+pratic[oa])?\b",
     r"\(?(?:ai sensi|ex\.?) (?:dell['’]\s*|degli |dell )?art.{0,80}?(?:\d{4}|(?:165|267)(?:/\d{2,4})?)\b(?:,?\s*n\.?\s*\d+\b)?\)?",
     r"(?:assunzione|copertura)(?=\s+(?:di|dei|delle|della|a tempo)\b.*(?:\d|\bun[oa]?\b|\bposti?\b|\bunit))",
-    r"(?:la copertura|la stabilizzazione|l['’]\s*assunzione|il reclutamento|il conferimento|l['’]affidamento|la stipula)\b",
+    r"(?:la copertura|la stabilizzazione|l['’]\s*assunzione|l['’]attribuzione|il reclutamento|il conferimento|l['’]affidamento|la stipula)\b",
     r"(?:a\s+)?tempo (?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?(?:\s*(?:e|ed|/)?\s*(?:a tempo\s+)?(?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?)*",
     r"\(\s*\d+\s*(?:h|ore)\b[^)]{0,20}\)",  # "(20 ore settimanali)"
     r"(?:\d+\s*)?ore(?:\s+settimanali)?\b(?:\s+estendibil\w*\s+a\s+\d+\s*ore(?:\s+settimanali)?)?",  # "18 ore settimanali" left by "a tempo parziale"
