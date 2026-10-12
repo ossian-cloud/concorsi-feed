@@ -29,6 +29,7 @@ FILLERS = [re.compile(p, re.I) for p in [
     r"(?:\d+\s*)?ore(?:\s+settimanali)?\b(?:\s+estendibil\w*\s+a\s+\d+\s*ore(?:\s+settimanali)?)?",  # "18 ore settimanali" left by "a tempo parziale"
     r"(?:e|ed)\s+(?:in)?determinat[oa]\b",
     r"(?:al|con percentuale(?: pari)? al)\s*\d+\s*%",  # "al 50%": part time
+    r"(?:e\s+)?part[- ]?time\b(?:\s*\(?\s*(?:al\s*)?\d+(?:[.,]\d+)?\s*%\s*\)?)?",  # "part time (50%)"
     r"(?:per\s+(?:la durata di\s+)?)?(?:\d+|un|uno|due|tre|sei|dodici|diciotto|ventiquattro|trentasei)\s+(?:mesi|mese|anno|anni)\b(?:\s+(?:eventualmente\s+)?(?:rinnovabil|prorogabil)\w*)?",
     r"a(?=\s+n\.?\s*\d)",  # "a n. 1 posto"
     r"(?:e|ed)\s+(?=a tempo|a orario|orario|a pieno|pieno)",  # "e a orario pieno": the rest of a contract phrase
