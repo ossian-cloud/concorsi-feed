@@ -2,6 +2,7 @@
 "Città metropolitana di X" is in a known place. Other entes (health authorities, universities, ministries)
 may hire anywhere, so they get no province rather than a guess. Names are matched against ISTAT's list
 of municipalities through bandi's geo.py, inside the call's own region."""
+import csv
 import re
 
 import geo
@@ -31,3 +32,30 @@ def place_of(ente, region):
         if prov and not (region and reg and geo.norm(reg) != geo.norm(region)):
             return None, prov
     return None, None
+
+
+def _capitals():
+    """{region: {normalized name: display name}} for provincial capitals, from the ISTAT flag column."""
+    out = {}
+    with open(geo.REF, encoding="latin-1", newline="") as f:
+        rows = csv.reader(f, delimiter=";")
+        next(rows)
+        for r in rows:
+            if len(r) > 13 and r[13].strip() == "1":
+                out.setdefault(r[10].split("/")[0].strip(), {})[geo.norm(r[6])] = r[6].strip()
+    return out
+
+
+CAPITALS = _capitals()
+
+
+def seat_of(ente, region):
+    """The city in an ente's name, for JobPosting.addressLocality only (not for province pages): exactly one
+    provincial capital of the call's own region, as whole words ("Università degli Studi di Palermo", "ASL Roma 2").
+    None when the name has none or several ("Camera di commercio Milano Monza Brianza Lodi"), or names an area ("ASST Nord Milano")."""
+    words = f" {geo.norm(ente)} "
+    for r in CAPITALS:  # "Friuli Venezia Giulia" is not Venezia
+        words = words.replace(f" {geo.norm(r)} ", " ")
+    found = {d for n, d in CAPITALS.get(region, {}).items() if f" {n} " in words
+             and not re.search(rf"\b(?:NORD|SUD|EST|OVEST|CENTRO) {n}\b|\b{n} (?:NORD|SUD|EST|OVEST|CENTRO)\b", words)}  # "Nord Milano": an area
+    return found.pop() if len(found) == 1 else None

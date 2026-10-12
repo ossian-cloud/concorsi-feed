@@ -366,8 +366,8 @@ def job_posting(c, url):
         org["sameAs"] = f"{u.scheme}://{u.netloc}"
     addr = {"@type": "PostalAddress", "addressCountry": "IT"}
     regs = regions_of(c)
-    if c.get("_comune"):
-        addr["addressLocality"] = c["_comune"]
+    if c.get("_comune") or c.get("_seat"):
+        addr["addressLocality"] = c.get("_comune") or c["_seat"]
     if regs:
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
@@ -790,6 +790,7 @@ def main(outdir):
         c["_prof"] = profili.profiles_of(c)
         regs = regions_of(c)
         c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
+        c["_seat"] = not c["_comune"] and len(regs) == 1 and local.seat_of(c.get("ente"), regs[0]) or None
         for a in c.get("attachments") or []:
             a["title"] = names.redact(a.get("title"))
     # placeholders left by an administration, not calls anyone can apply to
