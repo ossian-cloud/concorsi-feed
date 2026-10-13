@@ -720,9 +720,11 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
 <button type="submit">Apri il feed</button>
 </form>
 <div class="actions" id="custom-links" hidden><a class="pill" id="cl-feed" href="#"><span aria-hidden="true">📡</span> Feed</a><a class="pill" id="cl-cal" href="#"><span aria-hidden="true">📅</span> Calendario</a><a class="pill" id="cl-webcal" href="#">aggiungi su iPhone e Mac</a></div>
-<p class="small" id="cl-url"></p>
+<p class="small"><span id="cl-url"></span> <button type="button" class="copy" data-copy="cl-url-v" hidden>Copia l'indirizzo</button></p>
 <p class="small" id="cl-embed-p" hidden>Da incollare nel tuo sito, per mostrare questi concorsi (<a href="#nel-tuo-sito">come funziona</a>):<br>
-<textarea id="cl-embed" rows="3" cols="60" readonly style="width:100%;max-width:40rem;font-size:.85rem" aria-label="Codice da incollare nel tuo sito"></textarea></p>
+<textarea id="cl-embed" rows="3" cols="60" readonly style="width:100%;max-width:40rem;font-size:.85rem" aria-label="Codice da incollare nel tuo sito"></textarea><br>
+<label>Quanti concorsi mostrare <select id="cl-n"><option>5</option><option selected>10</option><option>20</option><option>50</option></select></label>
+<button type="button" class="copy" data-copy="cl-embed" hidden>Copia il codice</button></p>
 <script>/* show the feed and calendar links for the chosen filters; without JavaScript the form opens the feed */
 (function () {{
   var f = document.getElementById("custom"), box = document.getElementById("custom-links");
@@ -735,12 +737,22 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
     document.getElementById("cl-cal").href = cal;
     document.getElementById("cl-webcal").href = cal.replace(/^https?:/, "webcal:");
     document.getElementById("cl-url").textContent = "Indirizzo del feed: " + feed;
-    document.getElementById("cl-embed").value = '<iframe src="' + new URL("feed/widget.php", location.href).href + (q ? "?" + q : "")
+    document.getElementById("cl-url").dataset.v = feed;
+    var n = document.getElementById("cl-n").value, w = p.concat(n != "10" ? ["n=" + n] : []).join("&");
+    document.getElementById("cl-embed").value = '<iframe src="' + new URL("feed/widget.php", location.href).href + (w ? "?" + w : "")
       + '" title="Concorsi pubblici aperti" height="640" loading="lazy" style="width:100%;border:1px solid #d5dedf"></iframe>';
     document.getElementById("cl-embed-p").hidden = false;
     box.hidden = false;
   }}
-  f.addEventListener("input", update); f.addEventListener("change", update); update();
+  f.addEventListener("input", update); f.addEventListener("change", update);
+  document.getElementById("cl-n").addEventListener("change", update); update();
+  if (navigator.clipboard) document.querySelectorAll("button.copy").forEach(function (b) {{
+    b.hidden = false;
+    b.addEventListener("click", function () {{
+      var el = document.getElementById(b.dataset.copy === "cl-url-v" ? "cl-url" : b.dataset.copy);
+      navigator.clipboard.writeText(el.dataset.v || el.value).then(function () {{ b.textContent = "Copiato"; }});
+    }});
+  }});
 }})();
 </script>
 <p class="small">Esempi: <a href="{custom("infermieri", "veneto")}">infermieri in Veneto</a> · <a href="{custom("polizia-locale", "lombardia")}">polizia locale in Lombardia</a> · <a href="feed/su-misura.php?q=tempo%20determinato&amp;r=lazio">«tempo determinato» nel Lazio</a>.
@@ -765,8 +777,8 @@ La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): 
 </tbody></table></div>
 
 <h2 id="nel-tuo-sito">Nel tuo sito o nella tua newsletter</h2>
-<p>Se gestisci un sito (un Informagiovani, un ordine professionale, un sindacato, un Comune) puoi mostrare l'elenco dei concorsi aperti che ti interessano, sempre aggiornato, senza ricopiarlo a mano.
-Scegli i filtri nel modulo <a href="#su-misura">qui sopra</a> e copia il codice che compare: è un riquadro (iframe) con i concorsi dalla scadenza più vicina, i primi 10 (per cambiare il numero aggiungi <code>&amp;n=20</code>, fino a 50).
+<p>Se gestisci un sito (un Informagiovani, l'ufficio placement di un'università, un ordine professionale, un sindacato, un Comune) puoi mostrare l'elenco dei concorsi aperti che ti interessano, sempre aggiornato, senza ricopiarlo a mano.
+Scegli i filtri nel modulo <a href="#su-misura">qui sopra</a> e copia il codice che compare: è un riquadro (iframe) con i concorsi dalla scadenza più vicina, i primi 10 (puoi sceglierne 5, 20 o 50).
 Il riquadro non usa cookie, script né risorse esterne e non raccoglie dati di chi lo guarda. Ogni concorso rimanda alla sua pagina qui, con il link alla scheda ufficiale su inPA.</p>
 <p class="small">Esempio: infermieri in Veneto.</p>
 <iframe src="feed/widget.php?f=infermieri&amp;r=veneto&amp;n=5" title="Esempio: concorsi aperti per infermieri in Veneto" height="560" loading="lazy" style="width:100%;max-width:40rem;border:1px solid #d5dedf"></iframe>
@@ -774,7 +786,7 @@ Il riquadro non usa cookie, script né risorse esterne e non raccoglie dati di c
 
 <h2 id="calendari">Come si aggiunge un calendario</h2>
 <div class="cards">
-<div class="card"><h3>Google Calendar</h3><p>Dal computer: <b>Altri calendari → + → Da URL</b>, incolla l'indirizzo del calendario.</p></div>
+<div class="card"><h3>Google Calendar</h3><p>Dal computer: <b>Altri calendari → + → Da URL</b>, incolla l'indirizzo del calendario. L'app per telefono non ha questa voce: fallo una volta dal computer (o da calendar.google.com nel browser del telefono) e poi lo vedi anche nell'app. Google aggiorna questi calendari con calma: una novità può metterci ore a comparire.</p></div>
 <div class="card"><h3>iPhone e Mac</h3><p>Tocca <b>aggiungi</b> accanto al calendario.</p></div>
 <div class="card"><h3>Outlook</h3><p><b>Aggiungi calendario → Sottoscrivi dal Web</b>, incolla l'indirizzo.</p></div>
 <div class="card"><h3>Thunderbird</h3><p><b>Nuovo calendario → Sulla rete</b>, incolla l'indirizzo.</p></div>
