@@ -7,8 +7,8 @@ import re
 
 import titles
 
-KIND = re.compile(r"(?:(?:bando|indizione|avviso|avvio|riapertura (?:dei )?termini|pubblico|procedura|di|del|dell['’]|per|relativo al(?:la)?)\s+)*"
-                  r"(concorso|concorsi|selezione|procedura (?:concorsuale|selettiva|comparativa)|mobilit[aà]|stabilizzazione|avviso|bando|interpello)\b", re.I)
+KIND = re.compile(r"(?:(?:approvazione|bando|indizione|avviso|avvio|riapertura (?:dei )?termini|pubblic[oa]|una?|procedura|di|del|dell['’]|per|relativo al(?:la)?)\s+)*"
+                  r"(concorso|concorsi|selezione|procedura (?:concorsuale|selettiva|comparativa|pubblica|selettivo\s*[-/–]\s*comparativa)|mobilit[aà]|stabilizzazione|avviso|bando|interpello)\b", re.I)
 FILLERS = [re.compile(p, re.I) for p in [
     r"(?:anche|intercompartimentale|intracompartimentale|esterna|interna|esterno|interno)\b(?:\s+e\s+(?:compartimentale|interuniversitaria))?",
     r"(?:del|dei) compart[oi] (?:funzioni locali|sanit[aà]|universit[aà]|istruzione e ricerca|funzioni centrali)(?:\s+(?:e|ed)\s+intercompartimentale)?\b",
@@ -23,7 +23,7 @@ FILLERS = [re.compile(p, re.I) for p in [
     r"(?:soli\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale))(?:\s+(?:e|ed)\s+(?:eventuale\s+)?(?:titoli|esami|esame|colloquio|prova (?:pratica|scritta|orale)))?(?:\s+pratic[oa])?\b",
     r"\(?(?:ai sensi|ex\.?) (?:dell['’]\s*|degli |dell )?art.{0,80}?(?:\d{4}|(?:165|267)(?:/\d{2,4})?)\b(?:,?\s*n\.?\s*\d+\b)?\)?",
     r"(?:assunzione|copertura)(?=\s+(?:di|dei|delle|della|a tempo)\b.*(?:\d|\bun[oa]?\b|\bposti?\b|\bunit))",
-    r"(?:la copertura|la stabilizzazione|l['’]\s*assunzione|l['’]attribuzione|il reclutamento|il conferimento|l['’]affidamento|la stipula)\b",
+    r"(?:la copertura|la stabilizzazione|l['’]\s*assunzione|l['’]attribuzione|l['’]assegnazione(?=\s+di\b)|il reclutamento|il conferimento|l['’]affidamento|la stipula)\b",
     r"(?:a\s+)?tempo (?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?(?:\s*(?:e|ed|/)?\s*(?:a tempo\s+)?(?:pieno|parziale|indeterminato|determinato)(?:\s*\([^)]{1,30}\))?)*",
     r"\(\s*\d+\s*(?:h|ore)\b[^)]{0,20}\)",  # "(20 ore settimanali)"
     r"(?:\d+\s*)?ore(?:\s+settimanali)?\b(?:\s+estendibil\w*\s+a\s+\d+\s*ore(?:\s+settimanali)?)?",  # "18 ore settimanali" left by "a tempo parziale"
@@ -38,7 +38,7 @@ FILLERS = [re.compile(p, re.I) for p in [
     r"n?\.?\s*\d+/\d+\.?(?=\s)",  # a reference number, "43994/2026."
     r"[,:;.–—/-]",
 ]]
-LEFTOVER = re.compile(r"(?:e|ed|o|del|della|dei|degli|ai sensi|art\.?|ex)(?=\s)|dell['’]", re.I)  # a phrase cut in half: keep the title whole
+LEFTOVER = re.compile(r"(?:e|ed|o|del|della|dei|degli|ai sensi|art\.?|ex|volt[oa] a)(?=\s)|dell['’]", re.I)  # a phrase cut in half: keep the title whole
 RANK = ["Avviso", "Interpello", "Selezione", "Stabilizzazione", "Concorso", "Mobilità"]  # the more specific word wins
 
 
@@ -104,7 +104,7 @@ def ours(prefix, ente):
         return False
     words = re.findall(r"\w+", ente.lower())
     initials = "".join(x[0] for x in words if x not in titles.SMALL and len(x) > 1)  # Acer, Arpa
-    return w[0] in words or len(w[0]) >= 3 and initials.startswith(w[0])
+    return w[0] in words or len(w[0]) >= 3 and initials.startswith(w[0]) or len(w[0]) >= 4 and any(x.startswith(w[0]) for x in words)  # "Fond." 
 
 
 def what(t, ente=None):
