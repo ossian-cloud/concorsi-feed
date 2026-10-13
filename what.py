@@ -117,7 +117,7 @@ def what(t, ente=None):
                 t = t[lead.end():]
                 break
         else:  # "Accademia belle arti urbino selezione pubblica ...": no separator, but an ente word first
-            m = ENTE.match(t) or ours(t[:40], ente)
+            m = ENTE.match(t) or ours(t[:40], ente) or re.match(r"[A-Z]{3,8}\s", t)  # "UNIFG Concorso pubblico..."
             k = m and re.search(r"\s(?=(?:selezione|concorso|avviso|bando|procedura|mobilit[aà])\s)", t[:80], re.I)
             before = k and t[:k.start()].split()[-1].lower().strip(",.:")
             if k and not re.search(r"\d", t[:k.start()]) and before not in titles.SMALL:
