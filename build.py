@@ -842,7 +842,7 @@ Segnalazioni e correzioni: <a href="https://github.com/ossian-cloud/concorsi-fee
 def main(outdir):
     calls = json.load(open(DATA, encoding="utf-8"))
     for c in calls.values():
-        if (c.get("posts") or 0) >= 9999:  # inPA's placeholder for "not fixed" (lists of eligible candidates)
+        if re.fullmatch(r"9{3,}", str(c.get("posts") or "")):  # inPA's placeholders for "not fixed" (lists of eligible candidates)
             c["posts"] = None
         if c.get("ente"):  # inPA's "Invia la tua candidatura [per il profilo di …]" buttons get scraped into the ente
             c["ente"] = re.sub(r"\s*\n\s*Invia la tua candidatura\b.*", "", c["ente"], flags=re.S)
