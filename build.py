@@ -281,13 +281,15 @@ def emit_page(outdir, rel, title, description, body, active="", depth=0, extra_h
                              canonical(rel)))
 
 
-def items_html(calls, prefix="", empty="Nessun concorso aperto al momento."):
-    """<li> rows: short title linking to our call page, then ente, area, posts and deadline."""
+def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False):
+    """<li> rows: short title linking to our call page, then ente, area, posts and deadline.
+    tag: data-r with the call's group keys, for the region filter on profession pages (REGION_FILTER)."""
     e = html.escape
     lis = []
     for c in calls:
         meta = [ente_short(c, 60), region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
-        lis.append(f'<li><a href="{prefix}{page_rel(c)}">{e(short_title(c, 110))}</a>'
+        data = f' data-r="{" ".join(keys_of(c))}"' if tag else ""
+        lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(short_title(c, 110))}</a>'
                    f'<small>{e(" · ".join(m for m in meta if m))}</small></li>')
     return '<ul class="items">\n' + "\n".join(lis) + "\n</ul>" if lis else f"<p>{empty}</p>"
 
@@ -536,17 +538,42 @@ def write_region_pages(outdir, sets, vsets, when):
         if provs:
             note += ('<p class="small">Comuni, Province e Città metropolitane, per provincia: '
                      + " · ".join(f'<a href="../provincia/{k[5:]}.html">{e(v[0])}</a> {len(v[1])}' for k, v in provs) + ".</p>\n")
+        profs = {p: sum(p in c["_prof"] for c in sel) for p in profili.LABEL}
+        if any(profs.values()):  # links to the profession page filtered on this region (REGION_FILTER)
+            note += ('<p class="small">Per professione: '
+                     + " · ".join(f'<a href="../profilo/{p}.html#{key}">{e(profili.LABEL[p])}</a> {n}' for p, n in profs.items() if n) + ".</p>\n")
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
 {note}<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"regione/{key}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA: {label}. Scadenze, feed e calendario, dati aggiornati ogni 4 ore.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA: {label}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
     return written
+
+
+# profilo/<name>.html#<region>: only that region's calls, with the custom feed and calendar for the pair.
+# Without JavaScript the link just shows every region.
+REGION_FILTER = """<script>(function () {
+  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), rows = document.querySelectorAll(".items li");
+  function show() {
+    var r = decodeURIComponent(location.hash.slice(1)), n = 0;
+    if (!names.hasOwnProperty(r)) r = "";
+    rows.forEach(function (li) { var ok = !r || li.dataset.r.split(" ").indexOf(r) >= 0; li.style.display = ok ? "" : "none"; if (ok) n++; });
+    box.hidden = !r;
+    if (!r) return;
+    box.querySelector("b").textContent = names[r];
+    box.querySelector("span").textContent = n + (n == 1 ? " concorso aperto" : " concorsi aperti");
+    var q = "../feed/su-misura.php?f=" + box.dataset.f + "&r=" + r;
+    box.querySelector(".feed").href = q;
+    box.querySelector(".cal").href = q + "&formato=ics";
+  }
+  window.addEventListener("hashchange", show);
+  show();
+})();</script>"""
 
 
 def write_profile_pages(outdir, psets, when):
@@ -562,17 +589,21 @@ def write_profile_pages(outdir, psets, when):
         for c in sel:
             for k in keys_of(c):
                 by_region[k] = by_region.get(k, 0) + 1
-        spread = " · ".join(f"{e(label_of(k))} {n}" for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
+        spread = " · ".join(f'<a href="#{k}">{e(label_of(k))}</a> {n}' for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
+        names = html.escape(json.dumps({k: label_of(k) for k in by_region}, ensure_ascii=False))
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
 <p class="small">Per regione: {spread}.</p>
-<p class="small">La professione la deduco dalle parole del titolo (inPA non la indica): qualche concorso può mancare o essere fuori posto. <a href="../info.html#professioni">Come la riconosco</a>.</p>
+<p id="solo" class="lead" hidden data-f="{name}" data-names="{names}">Solo <b></b>: <span></span>.
+<a href="#">Tutte le regioni</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
+<p class="small">inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. Per non perderne, segui anche la tua regione. <a href="../info.html#professioni">Come la riconosco</a>.</p>
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
-{items_html(sel, "../")}"""
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
+{items_html(sel, "../", tag=True)}
+{REGION_FILTER}"""
         emit_page(outdir, f"profilo/{name}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA per {label.lower()}. Scadenze, feed e calendario, dati aggiornati ogni 4 ore.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA per {label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
     return written
@@ -592,10 +623,10 @@ def write_province_pages(outdir, vsets, when):
 <p class="small">Qui ci sono solo gli enti locali, di cui conosco la sede dal nome. Aziende sanitarie, ospedali, università e altri enti della zona sono nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a>. <a href="../info.html#province">Come funziona</a>.</p>
 {f'<p class="small">Comuni: {e(", ".join(comuni))}.</p>' if comuni else ""}
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi Comuni in provincia di {name}: {len(sel)} aperti",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, aggiornati ogni 4 ore.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
     return list(vsets)
 
@@ -669,7 +700,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
 <h1>Feed e calendari</h1>
 <p class="lead">Un <b>calendario</b> ti mostra ogni scadenza come un evento; un <b>feed</b> ti avvisa quando esce un nuovo concorso.
-Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.</p>
+Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli. Preferisci l'email? <a href="#email">Ecco come</a>, senza lasciare a me il tuo indirizzo.</p>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Calendario di tutta Italia</a><a class="pill" href="{webcal("calendario/italia.ics")}">aggiungi su iPhone e Mac</a><a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a></div>
 
 <h2 id="su-misura">Su misura: professione, regione o provincia, parole</h2>
@@ -797,6 +828,10 @@ def main(outdir):
     for c in calls.values():
         if (c.get("posts") or 0) >= 9999:  # inPA's placeholder for "not fixed" (lists of eligible candidates)
             c["posts"] = None
+        if c.get("ente"):  # inPA's "Invia la tua candidatura [per il profilo di …]" buttons get scraped into the ente
+            c["ente"] = re.sub(r"\s*\n\s*Invia la tua candidatura\b.*", "", c["ente"], flags=re.S)
+        if c.get("desc") and c.get("ente") and " ".join(c["title"].split()).lower() == " ".join(c["ente"].split()).lower():
+            c["title"] = titles.cut(" ".join(c["desc"].split()), 300)  # title is only the ente's name: the description says what it is
         c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
         c["_prof"] = profili.profiles_of(c)
         regs = regions_of(c)
