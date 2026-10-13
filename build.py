@@ -368,7 +368,48 @@ def job_posting(c, url):
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
 
 
-def call_page(c, today, now, region_pages, profile_pages, province_pages):
+def page_title(c, now, note=""):
+    """<title>: the job, the ente when short, the deadline. `note` tells apart calls whose titles would collide."""
+    closed = c["_closed"]
+    who = titles.short_ente(c["ente"]) if c.get("ente") else ""
+    who = who if len(who) <= 34 else ""
+    expired = valid_closes(c) and c["closes"] < now.strftime("%Y-%m-%dT%H:%M")
+    tail = (f": scadenza {day(c['closes'])}" if valid_closes(c) and not closed else
+            f": chiuso il {day(c['closes'])}" if expired else ": non più su inPA" if closed else "")
+    note = f" ({note})" if note else ""
+    room = max(24, min(60, max(36, 90 - len(tail) - 3 - len(who))) - len(note))  # the job keeps some room
+    title = short_title(c, 300)
+    if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
+        rest = title[len(who):].lstrip(" -–—:,._")
+        title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
+    return titles.cut(title, room if who else max(24, 90 - len(tail) - len(note))) + note + (f" - {who}" if who else "") + tail
+
+
+NOTE_TAIL = re.compile(r"(?:\s+(?:area|profilo|e|ed|di|da|a|il|la|per|presso|con|in|del|della|dello|dei|degli|delle)|[\s,.;:–—-]+)+$", re.I)
+
+
+def title_notes(calls, now):
+    """Calls whose <title> would be identical (eight research grants of one university, cut before their code)
+    get the first words where their full title differs from the others in the group."""
+    groups, notes = {}, {}
+    for c in calls:
+        groups.setdefault(page_title(c, now), []).append(c)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        words = {c["id"]: short_title(c, 300).split() for c in group}
+        common = 0
+        while all(len(w) > common for w in words.values()) and len({w[common].lower() for w in words.values()}) == 1:
+            common += 1
+        for c in group:
+            note = re.split(r"\s*\(", " ".join(words[c["id"]][common:common + 4]))[0]  # "clarinetto (ex": no half bracket
+            note = NOTE_TAIL.sub("", re.sub(r"[“”\"«»()]", "", note))  # nor a dangling "presso il"
+            if note and sum(1 for w in words.values() if w[common:common + 4] == words[c["id"]][common:common + 4]) == 1:
+                notes[c["id"]] = titles.cut(note, 28)
+    return notes
+
+
+def call_page(c, today, now, region_pages, profile_pages, province_pages, note=""):
     """Full HTML of one call page."""
     e = html.escape
     closed = c["_closed"]
@@ -438,17 +479,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages):
 {description}{attachments}<h2>Altri concorsi</h2>
 <div class="actions">{"".join(follow)}</div>
 <p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. Fa fede la scheda su inPA, a cui ogni voce rimanda.</p>"""
-    who = titles.short_ente(c["ente"]) if c.get("ente") else ""
-    who = who if len(who) <= 34 else ""
-    expired = valid_closes(c) and c["closes"] < now.strftime("%Y-%m-%dT%H:%M")
-    tail = (f": scadenza {day(c['closes'])}" if valid_closes(c) and not closed else
-            f": chiuso il {day(c['closes'])}" if expired else ": non più su inPA" if closed else "")
-    room = min(60, max(36, 90 - len(tail) - 3 - len(who)))
-    title = short_title(c, 300)
-    if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
-        rest = title[len(who):].lstrip(" -–—:,._")
-        title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
-    title = titles.cut(title, room if who else 90 - len(tail)) + (f" - {who}" if who else "") + tail
+    title = page_title(c, now, note)
     meta = [posts_text(c), ente_short(c, 60), region_text(c), "scadenza " + deadline_short(c) if valid_closes(c) else None,
             c.get("eval") and "valutazione: " + c["eval"].lower()]
     desc = short(", ".join(m for m in meta if m) + ".", 200)
@@ -464,8 +495,9 @@ def write_call_pages(outdir, kept, today, now, region_pages, profile_pages, prov
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
+    notes = title_notes(kept, now)
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages)
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, notes.get(c["id"], ""))
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
