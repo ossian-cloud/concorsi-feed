@@ -289,7 +289,8 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag
     for c in calls:
         meta = [ente_short(c, 60), region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
         data = f' data-r="{" ".join(keys_of(c))}"' if tag else ""
-        lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(short_title(c, 110))}</a>'
+        title = f'{short_title(c, 105 - len(c["_note"]))} ({c["_note"]})' if c.get("_note") else short_title(c, 110)
+        lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(title)}</a>'
                    f'<small>{e(" · ".join(m for m in meta if m))}</small></li>')
     return '<ul class="items">\n' + "\n".join(lis) + "\n</ul>" if lis else f"<p>{empty}</p>"
 
@@ -399,15 +400,19 @@ def title_notes(calls, now):
     for group in groups.values():
         if len(group) < 2:
             continue
-        words = {c["id"]: short_title(c, 300).split() for c in group}
+        words = {c["id"]: short_title(c, 2000).split() for c in group}
         common = 0
         while all(len(w) > common for w in words.values()) and len({w[common].lower() for w in words.values()}) == 1:
             common += 1
+        found = {}
         for c in group:
             note = re.split(r"\s*\(", " ".join(words[c["id"]][common:common + 4]))[0]  # "clarinetto (ex": no half bracket
             note = NOTE_TAIL.sub("", re.sub(r"[“”\"«»()]", "", note))  # nor a dangling "presso il"
-            if note and sum(1 for w in words.values() if w[common:common + 4] == words[c["id"]][common:common + 4]) == 1:
-                notes[c["id"]] = titles.cut(note, 28)
+            if note:
+                found[c["id"]] = titles.cut(note, 28)
+        for k, note in found.items():
+            if list(found.values()).count(note) == 1:  # two "1 posto di autista" would tell nothing apart
+                notes[k] = note
     return notes
 
 
@@ -497,9 +502,8 @@ def write_call_pages(outdir, kept, today, now, region_pages, profile_pages, prov
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
-    notes = title_notes(kept, now)
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, notes.get(c["id"], ""))
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""))
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -844,6 +848,8 @@ def main(outdir):
     now  = dt.datetime.now(ROME).replace(tzinfo=None)  # Rome wall clock, comparable with the data's local times
     today = now.date()
     open_, kept = classify(calls, now)
+    for k, note in title_notes(kept, now).items():  # in page titles and lists
+        calls[k]["_note"] = note
     os.makedirs(outdir, exist_ok=True)
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
     sets, psets, vsets = write_feeds(outdir, open_, latest)
