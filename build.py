@@ -554,7 +554,7 @@ def write_region_pages(outdir, sets, vsets, when):
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
 {note}<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../nuovi.html#{key}">Nuovi della settimana</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"regione/{key}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
                   f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA: {label}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
@@ -582,6 +582,67 @@ REGION_FILTER = """<script>(function () {
   window.addEventListener("hashchange", show);
   show();
 })();</script>"""
+
+
+# nuovi.html#<region>: only that region's new calls; day headings with nothing left are hidden.
+NEW_FILTER = """<script>(function () {
+  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), days = document.querySelectorAll(".day");
+  function show() {
+    var r = decodeURIComponent(location.hash.slice(1)), n = 0;
+    if (!names.hasOwnProperty(r)) r = "";
+    days.forEach(function (d) {
+      var k = 0;
+      d.querySelectorAll(".items li").forEach(function (li) { var ok = !r || li.dataset.r.split(" ").indexOf(r) >= 0; li.style.display = ok ? "" : "none"; if (ok) k++; });
+      d.hidden = !k; n += k;
+      d.querySelector("h2 small").textContent = "(" + k + ")";
+    });
+    box.hidden = !r;
+    if (!r) return;
+    box.querySelector("b").textContent = names[r];
+    box.querySelector("span").textContent = n + (n == 1 ? " concorso nuovo" : " concorsi nuovi");
+    box.querySelector(".all").href = "regione/" + r + ".html";
+    box.querySelector(".feed").href = "feed/" + r + ".xml";
+  }
+  window.addEventListener("hashchange", show);
+  show();
+})();</script>"""
+WEEKDAYS = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+MONTHS = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+NEW_DAYS = 7
+
+
+def write_new_page(outdir, open_, when, today):
+    """nuovi.html: open calls whose applications opened in the last NEW_DAYS days, newest day first."""
+    e = html.escape
+    first = (today - dt.timedelta(days=NEW_DAYS - 1)).isoformat()
+    sel = [c for c in open_ if first <= posted(c)[:10] <= today.isoformat()]
+    by_day = {}
+    for c in sorted(sel, key=lambda c: (posted(c), c["id"]), reverse=True):
+        by_day.setdefault(posted(c)[:10], []).append(c)
+    by_region = {}
+    for c in sel:
+        for k in keys_of(c):
+            by_region[k] = by_region.get(k, 0) + 1
+    order = [slug(r) for r in REGIONS] + [NAZ]
+    spread = " · ".join(f'<a href="#{k}">{e(label_of(k))}</a> {by_region[k]}' for k in order if k in by_region)
+    names = html.escape(json.dumps({k: label_of(k) for k in by_region}, ensure_ascii=False))
+    sections = []
+    for d, cs in by_day.items():
+        dd = dt.date.fromisoformat(d)
+        name = "Oggi" if dd == today else "Ieri" if dd == today - dt.timedelta(days=1) else WEEKDAYS[dd.weekday()].capitalize()
+        sections.append(f'<section class="day">\n<h2>{name}, {dd.day} {MONTHS[dd.month - 1]} <small>({len(cs)})</small></h2>\n{items_html(cs, tag=True)}\n</section>')
+    body = f"""{layout.crumbs([("", "Nuovi")], 0)}
+<h1>Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni</h1>
+<p class="lead">{plural(len(sel), "concorso", "concorsi")} su inPA aperti negli ultimi {NEW_DAYS} giorni e non ancora scaduti, dal più recente. Aggiornato il {when}.</p>
+<p class="small">Per regione: {spread}.</p>
+<p id="solo" class="lead" hidden data-names="{names}">Solo <b></b>: <span></span>.
+<a href="#">Tutte le regioni</a> · <a class="all" href="index.html">tutti i concorsi aperti</a> · <a class="feed" href="feed.html">feed</a> della regione.</p>
+<p class="small">Conta il giorno di apertura delle candidature indicato da inPA. I concorsi di un giorno arrivano qui di solito la notte successiva, quando inPA aggiorna il suo elenco, quindi «Oggi» è spesso quasi vuoto. Per non controllare a mano, usa il <a href="feed.html">feed</a> della tua regione: ti porta solo i nuovi.</p>
+{"".join(sections) or "<p>Nessun concorso nuovo negli ultimi giorni.</p>"}
+{NEW_FILTER}"""
+    emit_page(outdir, "nuovi.html", f"Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni ({len(sel)})",
+              f"{plural(len(sel), 'concorso pubblico', 'concorsi pubblici')} su inPA con candidature aperte negli ultimi {NEW_DAYS} giorni, giorno per giorno e per regione.",
+              body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
 
 def write_profile_pages(outdir, psets, when):
@@ -753,7 +814,7 @@ def dataset_ld(n, latest):
 
 
 def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
-    urls = [(canonical(r), None) for r in ["index.html", "feed.html", "dati.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
+    urls = [(canonical(r), None) for r in ["index.html", "nuovi.html", "feed.html", "dati.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
             + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
@@ -803,6 +864,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 
 <h2>Ultimi pubblicati</h2>
 {items_html(newest)}
+<p><a href="nuovi.html">Tutti i nuovi degli ultimi giorni, giorno per giorno e per regione</a></p>
 <p class="small">Aggiornato il {when}.</p>"""
     emit_page(outdir, "index.html", "Concorsi pubblici aperti (inPA) in feed e calendario · ossian.cloud",
               f"{n} concorsi pubblici aperti su inPA, con scadenze, feed e calendari gratuiti per regione. Estratto non ufficiale.",
@@ -992,6 +1054,7 @@ def main(outdir):
     province_keys = write_province_pages(outdir, vsets, when)
     indexable = write_call_pages(outdir, kept, today, now, set(region_keys), set(profile_keys), set(province_keys))
     write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today)
+    write_new_page(outdir, open_, when, today)
     write_sitemap(outdir, region_keys, profile_keys, province_keys, indexable)
     odd = sorted({c.get("region") or "" for c in open_ if not regions_of(c)})
     print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds, {len(vsets)} province feeds; non-region values: {odd}", file=sys.stderr)
