@@ -41,6 +41,7 @@ $get = function (string $k): string {
     return trim(preg_replace('/[\x{0}-\x{1F}\x{7F}\x{FFFE}\x{FFFF}]/u', ' ', $s));
 };
 $r = $get('r'); $p = $get('p'); $f = $get('f'); $q = $get('q'); $fmt = $get('formato');
+if ($p === 'forl-cesena') $p = 'forli-cesena'; // old slug, until 2026-10-14
 // cheap checks first: everything below needs the data file
 if ($r !== '' && !preg_match('/^[a-z-]{3,30}$/', $r)) fail(400, 'Regione non valida.');
 if ($p !== '' && !preg_match('/^[a-z-]{3,40}$/', $p)) fail(400, 'Provincia non valida.');

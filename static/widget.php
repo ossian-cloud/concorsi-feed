@@ -38,6 +38,7 @@ $get = function (string $k): string {
     return trim(preg_replace('/[\x{0}-\x{1F}\x{7F}\x{FFFE}\x{FFFF}]/u', ' ', $s));
 };
 $r = $get('r'); $p = $get('p'); $f = $get('f'); $q = $get('q'); $n = $get('n');
+if ($p === 'forl-cesena') $p = 'forli-cesena'; // old slug, until 2026-10-14
 if ($r !== '' && !preg_match('/^[a-z-]{3,30}$/', $r)) fail(400, 'Regione non valida.');
 if ($p !== '' && !preg_match('/^[a-z-]{3,40}$/', $p)) fail(400, 'Provincia non valida.');
 if ($f !== '' && !preg_match('/^[a-z-]{3,30}$/', $f)) fail(400, 'Professione non valida.');
