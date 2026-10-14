@@ -8,7 +8,7 @@ TAGLINE = "Concorsi inPA in feed e calendario · di Ossian"
 OFFICIAL = "inPA (Dipartimento della Funzione Pubblica)"  # who publishes the official version
 LICENCE = "Riporto i dati con il link alla scheda ufficiale."
 REPO = "https://github.com/ossian-cloud/concorsi-feed"
-NAV = [("./", "Concorsi aperti"), ("feed.html", "Feed e calendari"), ("info.html", "Info")]
+NAV = [("./", "Concorsi aperti"), ("feed.html", "Feed e calendari"), ("dati.html", "Dati"), ("info.html", "Info")]
 
 
 def top(active, depth=0):

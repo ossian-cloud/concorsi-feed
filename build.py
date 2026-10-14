@@ -4,7 +4,9 @@ Usage: python3 build.py OUTDIR   (e.g. /tmp/concorsi-out)
 """
 import datetime as dt
 import gzip
+import csv
 import html
+import io
 import json
 import os
 import re
@@ -637,8 +639,101 @@ def write_province_pages(outdir, vsets, when):
     return list(vsets)
 
 
+FIELDS = [  # (column, description) for dati/concorsi-aperti.csv, documented on dati.html
+    ("id", "Identificativo del concorso su inPA"),
+    ("titolo", "Titolo come su inPA (spazi normalizzati, eventuali nomi di persone sostituiti da «[nome omesso]»)"),
+    ("ente", "Amministrazione che bandisce"),
+    ("area_inpa", "Area geografica come la indica inPA"),
+    ("regioni", "Regioni ricavate dall'area geografica, separate da «|»; «Nazionale e altre aree» se nessuna"),
+    ("provincia", "Provincia, solo per Comuni, Province e Città metropolitane (dal nome dell'ente e dall'elenco ISTAT)"),
+    ("comune", "Comune, solo per gli enti locali di cui sopra"),
+    ("professioni", "Professioni dedotte da parole chiave nel titolo, separate da «|»: una stima, non un dato di inPA"),
+    ("posti", "Numero di posti, se indicato (i segnaposto come 999 o 9999 sono lasciati vuoti)"),
+    ("valutazione", "Tipo di valutazione (per esami, per titoli…)"),
+    ("apertura", "Apertura delle candidature, ora di Roma (AAAA-MM-GGTHH:MM)"),
+    ("scadenza", "Scadenza delle candidature, ora di Roma (AAAA-MM-GGTHH:MM)"),
+    ("retribuzione_min", "Retribuzione annua lorda minima in euro, se indicata"),
+    ("retribuzione_max", "Retribuzione annua lorda massima in euro, se indicata"),
+    ("aggiornato_inpa", "Data di ultima modifica nella sitemap di inPA (UTC)"),
+    ("url_inpa", "Scheda ufficiale su inPA: fa fede questa"),
+    ("url_pagina", "Pagina del concorso su ossian.cloud"),
+    ("sito_ente", "Sito dell'amministrazione, come indicato su inPA"),
+]
+
+
+def num(v):
+    return "" if v is None else str(int(v)) if v == int(v) else str(v)
+
+
+def dataset_row(c):
+    keys = keys_of(c)
+    return {"id": c["id"], "titolo": " ".join(c["title"].split()), "ente": " ".join((c.get("ente") or "").split()),
+            "area_inpa": c.get("region") or "", "regioni": "|".join(label_of(k) for k in keys),
+            "provincia": c["_prov"] or "", "comune": c["_comune"] or "",
+            "professioni": "|".join(profili.LABEL[p] for p in c["_prof"]), "posti": c.get("posts") or "",
+            "valutazione": c.get("eval") or "", "apertura": c.get("opens") or "",
+            "scadenza": c["closes"] if valid_closes(c) else "",
+            "retribuzione_min": num(c.get("pay_min")), "retribuzione_max": num(c.get("pay_max")),
+            "aggiornato_inpa": c["lastmod"], "url_inpa": INPA_PAGE.format(c["id"]),
+            "url_pagina": f"{BASE}/{page_rel(c)}", "sito_ente": c.get("pa_url") or ""}
+
+
+def write_dataset(outdir, open_, latest, when):
+    """dati/concorsi-aperti.csv: every open call, one row each, with the derived fields; dati.html says what's in them.
+    inPA has no open dataset of its calls: this is the closest thing, under its CC BY 3.0 licence."""
+    rows = [dataset_row(c) for c in sorted(open_, key=lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"]))]
+    os.makedirs(os.path.join(outdir, "dati"), exist_ok=True)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=[k for k, _ in FIELDS])
+    w.writeheader()
+    w.writerows(rows)
+    sizes = {}
+    for name, text in [("concorsi-aperti.csv", buf.getvalue())]:
+        path = os.path.join(outdir, "dati", name)
+        with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        os.replace(path + ".tmp", path)
+        sizes[name] = os.path.getsize(path)
+    e = html.escape
+    fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in FIELDS)
+    body = f"""{layout.crumbs([("", "Dati aperti")])}
+<div class="prose">
+<h1>I concorsi aperti su inPA, in un file</h1>
+<p class="lead">inPA, il portale del reclutamento della pubblica amministrazione, non pubblica i suoi bandi come dati aperti (almeno, non ne ho trovati: né sul portale né su dati.gov.it). Qui ci sono tutti i concorsi aperti
+che leggo su inPA ({len(rows)} ora), in un unico file CSV, rigenerato ogni 4 ore: per un'analisi, un articolo, un foglio di calcolo o un programma.</p>
+<div class="actions"><a class="pill" href="dati/concorsi-aperti.csv" download><span aria-hidden="true">⬇</span> CSV ({sizes["concorsi-aperti.csv"] // 1024} kB)</a>
+</div>
+<p class="small">Aggiornato il {when}. Indirizzo fisso, da usare anche in un programma: <code>{BASE}/dati/concorsi-aperti.csv</code>.</p>
+
+<h2>Licenza e citazione</h2>
+<p>I contenuti vengono da inPA, Portale del reclutamento (Dipartimento della Funzione Pubblica), in licenza <a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>, e restano sotto la stessa licenza.
+Se li riusi cita inPA come fonte; se ti va, anche questa pagina. È un <strong>estratto non ufficiale: fa fede inPA</strong>.</p>
+
+<h2>I campi</h2>
+<p>Una riga per concorso aperto, ordinate per scadenza. Nel CSV: separatore virgola, codifica UTF-8, intestazione nella prima riga; un campo vuoto vuol dire che inPA non dà l'informazione o che non sono riuscito a ricavarla.</p>
+<div class="table"><table><thead><tr><th>Campo</th><th>Cosa contiene</th></tr></thead><tbody>
+{fields}
+</tbody></table></div>
+
+<h2>Come aprirlo</h2>
+<p>Excel: <b>Dati → Da testo/CSV</b>, scegli il file e la codifica UTF-8 (se lo apri con un doppio clic, con le impostazioni italiane le colonne non si separano).
+LibreOffice Calc: apri il file e scegli «Virgola» come separatore. Se ti serve in un altro formato, <a href="mailto:ossian@ossian.cloud">scrivimi</a>.</p>
+
+<h2>Limiti</h2>
+<ul>
+<li>Ci sono solo i concorsi aperti, cioè con la scadenza non ancora passata, presenti su inPA. Non tutte le amministrazioni pubblicano tutto su inPA.</li>
+<li>Regioni, provincia, comune e professioni sono ricavati da me, con regole spiegate in <a href="info.html">Info</a> e nel <a href="https://github.com/ossian-cloud/concorsi-feed">codice</a>: possono sbagliare. Gli altri campi sono quelli di inPA, che possono contenere errori o arrivare in ritardo.</li>
+<li>Le descrizioni e i documenti allegati non ci sono: sono sulla scheda ufficiale, a cui rimanda <code>url_inpa</code>.</li>
+<li>Non ci sono dati di persone: nei titoli i nomi sono sostituiti da «[nome omesso]». Se trovi un dato personale, scrivi a <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a> e lo tolgo.</li>
+</ul>
+</div>"""
+    emit_page(outdir, "dati.html", "Concorsi pubblici aperti (inPA) in CSV: dati aperti · ossian.cloud",
+              f"Tutti i {len(rows)} concorsi pubblici aperti su inPA in un file CSV, aggiornato ogni 4 ore, con regione, provincia e professione. Licenza CC BY 3.0.",
+              body, "dati.html")
+
+
 def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
-    urls = [(canonical(r), None) for r in ["index.html", "feed.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
+    urls = [(canonical(r), None) for r in ["index.html", "feed.html", "dati.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
             + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
@@ -669,7 +764,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 <div><b>{len(sets) + len(psets) + len(vsets)}</b><span>feed e calendari</span></div>
 </div>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Tutte le scadenze nel calendario</a>
-<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a></div>
+<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a><a class="pill" href="dati.html">Tutti in un file CSV</a></div>
 
 <h2>Per regione</h2>
 <ul class="grid-links">
@@ -815,6 +910,8 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore. I concorsi nuovi però arrivano una volta al giorno: leggo l'elenco pubblico dei bandi di inPA (la sua sitemap), che inPA rigenera ogni notte verso le 2. Un bando pubblicato su inPA in giornata compare qui di solito la notte successiva: per le novità dell'ultima ora conta inPA.</li>
 </ul>
+<h2 id="dati">Dati aperti</h2>
+<p>Tutti i concorsi aperti sono anche in un unico file CSV, con regione, provincia e professione: <a href="dati.html">dati aperti</a>.</p>
 <h2>Fonte e licenza</h2>
 <p>Fonte: inPA, Portale del reclutamento, Dipartimento della Funzione Pubblica — contenuti in licenza
 <a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.</p>
@@ -869,6 +966,7 @@ def main(outdir):
     sets, psets, vsets = write_feeds(outdir, open_, latest)
     write_custom(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
+    write_dataset(outdir, open_, latest, when)
     region_keys = write_region_pages(outdir, sets, vsets, when)
     profile_keys = write_profile_pages(outdir, psets, when)
     province_keys = write_province_pages(outdir, vsets, when)
