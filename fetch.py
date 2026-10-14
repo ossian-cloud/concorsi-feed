@@ -31,6 +31,7 @@ PAGE = "https://www.inpa.gov.it/bandi-e-avvisi/dettaglio-bando-avviso/?concorso_
 UA = "OssianBot/0.1 (+https://ossian.cloud/concorsi/; ossian@ossian.cloud)"
 PAUSE = 3
 GRACE_DAYS = 14
+STALE_DAYS = 2  # a sitemap this many days behind our newest stored lastmod is a stale copy
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data", "calls.json")
 BLOCKED = os.path.join(HERE, "data", "BLOCKED")
@@ -165,6 +166,12 @@ def main():
     except Blocked as e:
         block(str(e))
         sys.exit(f"BLOCKED: {e}")
+    # a stale cached sitemap (14 Oct 10:13: newest lastmod 27 Sep) would mark hundreds of open calls gone;
+    # skip this run instead, without blocking: the next cycle usually gets the current one
+    newest = max((c.get("lastmod", "") for c in calls.values()), default="")
+    if newest and max(listed.values()) < (dt.datetime.fromisoformat(newest.replace("Z", "+00:00"))
+                                          - dt.timedelta(days=STALE_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ"):
+        sys.exit(f"stale sitemap: newest lastmod {max(listed.values())}, stored {newest}; not updating")
     for cid, c in calls.items():
         if cid not in listed and not c.get("gone"):
             c["gone"] = now.isoformat(timespec="seconds")
