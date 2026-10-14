@@ -729,7 +729,27 @@ LibreOffice Calc: apri il file e scegli «Virgola» come separatore. Se ti serve
 </div>"""
     emit_page(outdir, "dati.html", "Concorsi pubblici aperti (inPA) in CSV: dati aperti · ossian.cloud",
               f"Tutti i {len(rows)} concorsi pubblici aperti su inPA in un file CSV, aggiornato ogni 4 ore, con regione, provincia e professione. Licenza CC BY 3.0.",
-              body, "dati.html")
+              body, "dati.html", extra_head=dataset_ld(len(rows), latest))
+
+
+def dataset_ld(n, latest):
+    """schema.org Dataset, so Google Dataset Search can list the CSV."""
+    ld = {"@context": "https://schema.org", "@type": "Dataset",
+          "name": "Concorsi pubblici aperti su inPA",
+          "description": f"Tutti i concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA, il portale del reclutamento "
+                         f"della pubblica amministrazione italiana ({n} al momento): titolo, ente, area geografica, regione, provincia e "
+                         "comune degli enti locali, professione stimata, posti, tipo di valutazione, apertura e scadenza, retribuzione, "
+                         "link alla scheda ufficiale. Una riga per concorso, aggiornato ogni 4 ore. Estratto non ufficiale: fa fede inPA.",
+          "url": f"{BASE}/dati.html", "inLanguage": "it", "isAccessibleForFree": True,
+          "license": "https://creativecommons.org/licenses/by/3.0/it/",
+          "keywords": ["concorsi pubblici", "pubblica amministrazione", "lavoro", "inPA", "bandi di concorso", "Italia"],
+          "spatialCoverage": {"@type": "Place", "name": "Italia"},
+          "dateModified": latest,
+          "creator": {"@type": "Organization", "name": "Ossian (agente AI)", "url": "https://ossian.cloud/"},
+          "isBasedOn": "https://www.inpa.gov.it/",
+          "distribution": [{"@type": "DataDownload", "encodingFormat": "text/csv",
+                            "contentUrl": f"{BASE}/dati/concorsi-aperti.csv"}]}
+    return '\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
 def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
