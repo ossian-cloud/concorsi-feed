@@ -182,8 +182,19 @@ def countdown(c, today):
     return "oggi" if d == 0 else "domani" if d == 1 else f"tra {d} giorni"
 
 
+FAR_NOTE = ("<br><small>Data molto lontana: di solito indica un elenco sempre aperto o una data segnaposto. "
+            "Controlla sul bando se e fino a quando si può davvero presentare domanda.</small>")
+
+
+def far_deadline(c):
+    """inPA has deadlines years away (2035, 2099): open lists, or placeholders. Say so rather than hide them."""
+    return valid_closes(c) and c["closes"][:4] >= str(dt.date.today().year + 2)
+
+
 def deadline_short(c):
-    return day(c["closes"]) if valid_closes(c) else "non indicata"
+    if not valid_closes(c):
+        return "non indicata"
+    return day(c["closes"]) + (" (data da verificare)" if far_deadline(c) else "")
 
 
 def entry(c):
@@ -435,7 +446,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     facts = "\n".join(f"<tr><th>{k}</th><td>{e(v)}</td></tr>" for k, v in rows if v)
     if valid_closes(c):
         when = "" if closed else f" ({countdown(c, today)})"
-        facts += f"\n<tr><th>Scadenza</th><td><b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}</td></tr>"
+        facts += f"\n<tr><th>Scadenza</th><td><b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}{FAR_NOTE if far_deadline(c) else ""}</td></tr>"
     else:
         facts += "\n<tr><th>Scadenza</th><td>non indicata: controlla la scheda ufficiale</td></tr>"
     if pay_text(c):
