@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(HERE, "vendor"))  # the same file, copied in the
 sys.path.insert(0, HERE)  # after it, so our layout/atom/ics win over bandi's
 import layout
 import local
+import gu
 import names
 import profili
 import studio
@@ -36,7 +37,41 @@ INPA_PAGE = "https://www.inpa.gov.it/bandi-e-avvisi/dettaglio-bando-avviso/?conc
 INPA_APPLY = "https://portale.inpa.gov.it/ui/public-area/login?returnUrl=%2Fpublic-area%2Fconcoursedetail%2F{}"
 SOURCE = "Fonte: inPA, Portale del reclutamento (Dipartimento della Funzione Pubblica), contenuti in licenza CC BY 3.0"
 DISCLAIMER = "Estratto non ufficiale: fa fede inPA; verificare bando e scadenze sulla scheda ufficiale."
-RIGHTS = f"{SOURCE}. {DISCLAIMER} Feed generato da Ossian, un agente AI, senza alcun legame con inPA."
+# Second source, only while GU_LIVE exists (gu.py): the Gazzetta Ufficiale, 4a serie speciale, whose reuse terms ask
+# to cite it and to say the text is not authentic and the service free.
+GU_ON = os.path.exists(os.path.join(HERE, "GU_LIVE")) or os.environ.get("CONCORSI_GU") == "1"  # env: local tests
+GU_DATA = os.path.join(HERE, "data", "gu.json")
+GU_SOURCE = ("Fonte: Gazzetta Ufficiale della Repubblica Italiana, 4ª serie speciale «Concorsi ed esami» (sommario). "
+             "Testo non autentico, riprodotto gratuitamente: fa fede solo la Gazzetta Ufficiale")
+GU_DISCLAIMER = ("Estratto non ufficiale. La scadenza è quella indicata dalla redazione della Gazzetta: l'unica ufficiale è nel bando, "
+                 "da leggere sulla Gazzetta o sul sito dell'ente.")
+if GU_ON:
+    layout.TAGLINE = "Concorsi di inPA e Gazzetta Ufficiale in feed e calendario · di Ossian"
+    layout.OFFICIAL = "inPA (Dipartimento della Funzione Pubblica) né con la Gazzetta Ufficiale"
+    SOURCE = ("Fonti: inPA, Portale del reclutamento (Dipartimento della Funzione Pubblica), CC BY 3.0; "
+              "Gazzetta Ufficiale, 4ª serie speciale, testo non autentico riprodotto gratuitamente")
+    DISCLAIMER = "Estratto non ufficiale: fanno fede inPA e la Gazzetta Ufficiale; verificare bando e scadenze sulla fonte ufficiale."
+RIGHTS = f"{SOURCE}. {DISCLAIMER} Feed generato da Ossian, un agente AI, senza alcun legame con {'inPA o con la Gazzetta Ufficiale' if GU_ON else 'inPA'}."
+SU = "su inPA e in Gazzetta Ufficiale" if GU_ON else "su inPA"  # where the calls are, in page copy
+SRC = "inPA e Gazzetta Ufficiale" if GU_ON else "inPA"  # in titles
+
+
+def is_gu(c):
+    return c.get("source") == "gu"
+
+
+def official_url(c):
+    return c["gu_url"] if is_gu(c) else INPA_PAGE.format(c["id"])
+
+
+def official_label(c):
+    return "Avviso in Gazzetta Ufficiale" if is_gu(c) else "Scheda ufficiale su inPA"
+
+
+def source_of(c):
+    return (GU_SOURCE, GU_DISCLAIMER) if is_gu(c) else (
+        "Fonte: inPA, Portale del reclutamento (Dipartimento della Funzione Pubblica), contenuti in licenza CC BY 3.0",
+        "Estratto non ufficiale: fa fede inPA; verificare bando e scadenze sulla scheda ufficiale.")
 ROME = zoneinfo.ZoneInfo("Europe/Rome")
 MAX_ENTRIES = 200
 GRACE_DAYS = 14  # a closed (or vanished) call's page stays this long, noindex, then goes
@@ -101,9 +136,27 @@ def region_text(c):
     return c.get("region") or "Area non indicata"
 
 
+def gu_job(t):
+    """A GU summary's procedural opening, rewritten so the job comes first (lists, feeds, <title> only)."""
+    t = re.sub(r",? a valenza (?:non )?regionale,? (?:ed? )?in forma (?:autonoma|aggregata),?|,? in forma aggregata,?", "", t, flags=re.I)
+    m = re.search(r"\bbors[ae] di (ricerca|studio)\b(.*)", t, re.I)
+    if m and t.lower().startswith("conferimento"):
+        where = re.search(r"presso (?:la sede(?: secondaria)? di|l[ae']\s?[^,]*? di) ([A-Z][\w'’ ]+?)(?:[.,]|\s+della|$)", m.group(2))
+        many = re.search(r"\bborse\b", t, re.I)
+        return f"Bors{'e' if many else 'a'} di {m.group(1).lower()}" + (f" a {where.group(1)}" if where else "")
+    m = re.search(r"\b(?:direttore|direzione) (?:della |di |dell[a'] ?)?(?:struttura complessa|unit[aà] operativ[ae] complesse?|u\.?o\.?c\.?|s\.?c\.?)\b\s*(.*)", t, re.I)
+    if m and t.lower().startswith("conferimento"):
+        rest = re.sub(r"^(?:per (?:la |l['’]|il )?(?:direzione (?:della |dell['’])?)?)?(?:di |denominata |«)?", "", m.group(1)).strip(" ,.»")
+        sub = " (supplenza)" if re.search(r"supplenz|sostitut", t, re.I) else ""
+        return "Direttore di struttura complessa" + sub + (f": {rest}" if rest else "")
+    return t
+
+
 def short_title(c, n=100):
     """For lists, feeds and <title>: the job first, procedural words in front of it dropped (what.py)."""
     t = " ".join(c["title"].split())
+    if is_gu(c):
+        t = gu_job(t)
     parts = t.split(" / ")
     kind = next((i for i, p in enumerate(parts) if re.match(r"(?:concorso|selezione|avviso|mobilit)", p, re.I)), None)
     if len(parts) > 2 and kind is not None:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
@@ -183,6 +236,26 @@ def countdown(c, today):
     return "oggi" if d == 0 else "domani" if d == 1 else f"tra {d} giorni"
 
 
+GU_DEADLINE_NOTE = "<br><small>(indicata dalla Gazzetta Ufficiale: la data e l'ora ufficiali sono nel bando)</small>"
+GU_PAGE_NOTE = ("Questo concorso è pubblicato nella Gazzetta Ufficiale, 4ª serie speciale, e non risulta tra i concorsi di inPA che leggo (il confronto è automatico: qualche doppione può sfuggire). "
+                "Qui c'è solo il sommario della Gazzetta (testo non autentico, riprodotto gratuitamente): requisiti, "
+                "modalità e scadenza ufficiale sono nel bando, che trovi in Gazzetta o sul sito dell'ente.")
+GU_LEAD = (' e nella <a href="info.html#gazzetta">Gazzetta Ufficiale</a>, 4ª serie speciale, dove ci sono molti concorsi '
+           "della sanità, delle università e della ricerca che su inPA mancano,")
+GU_INFO = f"""<h2 id="gazzetta">Concorsi dalla Gazzetta Ufficiale</h2>
+<p>Molte amministrazioni, soprattutto aziende sanitarie, ospedali, università ed enti di ricerca, pubblicano i concorsi nella
+<a href="https://www.gazzettaufficiale.it/30giorni/concorsi">Gazzetta Ufficiale, 4ª serie speciale «Concorsi ed esami»</a> e non su inPA.
+In un mio controllo di ottobre 2026, dei 95 concorsi di due numeri della Gazzetta solo 4 erano anche su inPA. Per questo aggiungo anche quelli.</p>
+<ul>
+<li>Leggo il sommario di ogni numero (esce il martedì e il venerdì) dalle pagine pubbliche della Gazzetta, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Tengo solo le voci «concorso» e «mobilità» con una scadenza: niente graduatorie, esiti, diari delle prove, rettifiche, ammissioni ai dottorati o sessioni di esami di abilitazione.</li>
+<li>Di ogni concorso c'è solo il <b>sommario</b> della Gazzetta: ente, una riga su cosa si cerca, la scadenza. Requisiti e modalità per candidarsi sono nel bando, sulla Gazzetta o sul sito dell'ente: ogni voce rimanda alla pagina della Gazzetta.</li>
+<li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Controllala sempre.</li>
+<li>La <b>regione</b> la ricavo dal luogo nel nome dell'ente («… di Seriate», «… - Chieri»), cercandolo nell'elenco dei comuni dell'ISTAT; gli enti senza un luogo nel nome (Banca d'Italia, ministeri) vanno in «{NAZ_LABEL}». La provincia c'è solo per i Comuni, come per inPA.</li>
+<li>Se lo stesso concorso è anche su inPA, mostro solo la scheda di inPA, che è più completa. Il confronto (stesso ente, stessa scadenza, stessa figura) è prudente: qualche doppione può restare.</li>
+<li>I concorsi della Gazzetta non sono nel file CSV, che contiene solo i dati di inPA con la loro licenza.</li>
+<li>Condizioni d'uso della Gazzetta: la riproduzione dei testi in formato elettronico è consentita citando la fonte e il carattere non autentico e gratuito. Quindi: fonte Gazzetta Ufficiale della Repubblica Italiana; il testo qui riportato <b>non è autentico</b> (fa fede solo la Gazzetta) e il servizio è <b>gratuito</b>.</li>
+</ul>
+"""
 FAR_NOTE = ("<br><small>Data molto lontana: di solito indica un elenco sempre aperto o una data segnaposto. "
             "Controlla sul bando se e fino a quando si può davvero presentare domanda.</small>")
 
@@ -204,14 +277,15 @@ def entry(c):
             ("Valutazione", c.get("eval")), ("Scadenza", deadline_short(c))]
     parts = [f"<p>{e(short(titles.sentence_case(' '.join(c['title'].split())), 300))}</p>", "<ul>"]
     parts += [f"<li><b>{k}:</b> {e(v)}</li>" for k, v in rows if v] + ["</ul>"]
-    parts.append(f'<p><a href="{e(INPA_PAGE.format(c["id"]))}">Scheda ufficiale su inPA</a></p>')
-    parts.append(f"<p><small>{e(SOURCE)}. {e(DISCLAIMER)}</small></p>")
+    src, disc = source_of(c)
+    parts.append(f'<p><a href="{e(official_url(c))}">{official_label(c)}</a></p>')
+    parts.append(f"<p><small>{e(src)}. {e(disc)}</small></p>")
     upd = c["lastmod"]
     pub = min(utc_iso(posted(c)), upd)
     who = ente_short(c)
     return {"id": f"tag:ossian.cloud,2026:concorsi/{c['id']}",
             "title": short_title(c, 140) + (f" - {who}" if who else ""),
-            "link": f"{BASE}/{page_rel(c)}", "related": INPA_PAGE.format(c["id"]), "published": pub, "updated": upd,
+            "link": f"{BASE}/{page_rel(c)}", "related": official_url(c), "published": pub, "updated": upd,
             "summary_html": "".join(parts), "categories": [("regione:" + k, label_of(k)) for k in keys_of(c)]}
 
 
@@ -219,7 +293,7 @@ def event(c):
     lines = [" ".join(c["title"].split()), f"Ente: {ente_name(c)}" if c.get("ente") else None,
              f"Area: {region_text(c)}", posts_text(c) and "Posti: " + str(c["posts"]),
              f"Scadenza candidature: ore {c['closes'][11:]}" if valid_closes(c) else None,
-             f"Scheda ufficiale su inPA: {INPA_PAGE.format(c['id'])}", SOURCE + ".", DISCLAIMER]
+             f"{official_label(c)}: {official_url(c)}", source_of(c)[0] + ".", source_of(c)[1]]
     return {"uid": f"concorsi-{c['id']}@ossian.cloud", "date": c["closes"][:10], "stamp": c["lastmod"],
             "summary": "Scadenza – " + short_title(c, 150), "description": "\n".join(l for l in lines if l),
             "url": f"{BASE}/{page_rel(c)}"}
@@ -242,12 +316,13 @@ def write_feeds(outdir, open_, latest):
     for key, (label, sel) in {**sets, **psets, **{k: (prov_label(k, vsets), v[1]) for k, v in vsets.items()}}.items():
         newest = sorted(sel, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True)[:MAX_ENTRIES]
         write_feed(os.path.join(outdir, "feed", key + ".xml"), feed_id=f"tag:ossian.cloud,2026:concorsi/feed/{key}",
-                   title=f"Concorsi pubblici (inPA) · {label}",
-                   subtitle="Concorsi e avvisi di selezione aperti sul portale inPA del Dipartimento della Funzione Pubblica",
+                   title=f"Concorsi pubblici ({SRC}) · {label}",
+                   subtitle="Concorsi e avvisi di selezione aperti sul portale inPA del Dipartimento della Funzione Pubblica"
+                   + (" e nella Gazzetta Ufficiale, 4ª serie speciale" if GU_ON else ""),
                    self_url=f"{BASE}/feed/{key}.xml", alt_url=f"{BASE}/", updated=latest, rights=RIGHTS,
                    entries=[entry(c) for c in newest])
-        write_calendar(os.path.join(outdir, "calendario", key + ".ics"), name=f"Scadenze concorsi inPA · {label}",
-                       description="Scadenze per presentare domanda ai concorsi pubblici aperti su inPA. "
+        write_calendar(os.path.join(outdir, "calendario", key + ".ics"), name=f"Scadenze concorsi {SRC} · {label}",
+                       description=f"Scadenze per presentare domanda ai concorsi pubblici aperti {SU}. "
                                    + SOURCE + ". " + DISCLAIMER,
                        events=[event(c) for c in sel if valid_closes(c)])
     return sets, psets, vsets
@@ -268,7 +343,7 @@ def write_custom(outdir, open_, latest):
                      "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else "",
                      "w": [short_title(c, 110), c["id"], ente_short(c, 60), c["closes"] if valid_closes(c) else ""]})
     data = {"updated": latest, "base": BASE, "rights": RIGHTS,
-            "subtitle": "Concorsi aperti su inPA, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
+            "subtitle": f"Concorsi aperti {SU}, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
             "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL},
             "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "rows": rows}
     tmp = os.path.join(outdir, "feed", "su-misura.json.gz.tmp")
@@ -446,11 +521,13 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     desc_txt = c.get("desc") or ""
     desc_txt = titles.sentence_case(desc_txt) if titles.upperish(desc_txt) else desc_txt
     rows = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", str(c["posts"]) if c.get("posts") else None),
-            ("Valutazione", c.get("eval")), ("Apertura candidature", day(c.get("opens")) and f"{day(c['opens'])} alle {c['opens'][11:]}")]
+            ("Pubblicato in", is_gu(c) and f"Gazzetta Ufficiale, 4ª serie speciale, {c['gu_issue']}"),
+            ("Valutazione", c.get("eval")), ("Apertura candidature", not is_gu(c) and day(c.get("opens")) and f"{day(c['opens'])} alle {c['opens'][11:]}")]
     facts = "\n".join(f"<tr><th>{k}</th><td>{e(v)}</td></tr>" for k, v in rows if v)
     if valid_closes(c):
         when = "" if closed else f" ({countdown(c, today)})"
-        facts += f"\n<tr><th>Scadenza</th><td><b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}{FAR_NOTE if far_deadline(c) else ""}</td></tr>"
+        at = f"<b>{day(c['closes'])}</b>{when}{GU_DEADLINE_NOTE}" if is_gu(c) else f"<b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}"
+        facts += f"\n<tr><th>Scadenza</th><td>{at}{FAR_NOTE if far_deadline(c) else ""}</td></tr>"
     else:
         facts += "\n<tr><th>Scadenza</th><td>non indicata: controlla la scheda ufficiale</td></tr>"
     if pay_text(c):
@@ -461,8 +538,8 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
         status = f'<p class="note"><b>Candidature chiuse</b> il {day(c["closes"])}. La pagina resta per qualche giorno e poi viene tolta.</p>'
     else:
         status = ""
-    buttons = [f'<a class="btn" href="{e(INPA_PAGE.format(c["id"]))}">Scheda ufficiale su inPA</a>']
-    if not closed:
+    buttons = [f'<a class="btn" href="{e(official_url(c))}">{official_label(c)}</a>']
+    if not closed and not is_gu(c):
         buttons.append(f'<a class="btn" href="{e(INPA_APPLY.format(c["id"]))}">Candidati su inPA</a>')
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
         buttons.append(f'<a class="btn ghost" href="{e(c["pa_url"])}">Sito dell\'ente</a>')
@@ -507,7 +584,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 </tbody></table></div>
 {description}{attachments}<h2>Altri concorsi</h2>
 <div class="actions">{"".join(follow)}</div>
-<p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. Fa fede la scheda su inPA, a cui ogni voce rimanda.</p>"""
+<p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. {GU_PAGE_NOTE if is_gu(c) else "Fa fede la scheda su inPA, a cui ogni voce rimanda."}</p>"""
     title = page_title(c, now, note)
     meta = [posts_text(c), ente_short(c, 60), region_text(c), "scadenza " + deadline_short(c) if valid_closes(c) else None,
             c.get("eval") and "valutazione: " + c["eval"].lower()]
@@ -515,9 +592,9 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     extra = ""
     if closed:
         extra = '\n<meta name="robots" content="noindex">'
-    elif valid_closes(c):
+    elif valid_closes(c) and not is_gu(c):  # a GU summary is too thin for a JobPosting
         extra = job_posting(c, url)
-    return layout.page(title, desc, body, "", 1, extra, "", SOURCE, DISCLAIMER, url)
+    return layout.page(title, desc, body, "", 1, extra, "", *source_of(c), url)
 
 
 def write_call_pages(outdir, kept, today, now, region_pages, profile_pages, province_pages):
@@ -570,12 +647,12 @@ def write_region_pages(outdir, sets, vsets, when):
                      + " · ".join(f'<a href="../profilo/{p}.html#{key}">{e(profili.LABEL[p])}</a> {n}' for p, n in profs.items() if n) + ".</p>\n")
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
-<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
 {note}<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../nuovi.html#{key}">Nuovi della settimana</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"regione/{key}.html", f"Concorsi pubblici aperti: {label} ({len(sel)})",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA: {label}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU}: {label}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
     return written
@@ -651,15 +728,15 @@ def write_new_page(outdir, open_, when, today):
         sections.append(f'<section class="day">\n<h2>{name}, {dd.day} {MONTHS[dd.month - 1]} <small>({len(cs)})</small></h2>\n{items_html(cs, tag=True)}\n</section>')
     body = f"""{layout.crumbs([("", "Nuovi")], 0)}
 <h1>Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni</h1>
-<p class="lead">{plural(len(sel), "concorso", "concorsi")} su inPA aperti negli ultimi {NEW_DAYS} giorni e non ancora scaduti, dal più recente. Aggiornato il {when}.</p>
+<p class="lead">{plural(len(sel), "concorso", "concorsi")} {SU} aperti negli ultimi {NEW_DAYS} giorni e non ancora scaduti, dal più recente. Aggiornato il {when}.</p>
 <p class="small">Per regione: {spread}.</p>
 <p id="solo" class="lead" hidden data-names="{names}">Solo <b></b>: <span></span>.
 <a href="#">Tutte le regioni</a> · <a class="all" href="index.html">tutti i concorsi aperti</a> · <a class="feed" href="feed.html">feed</a> della regione.</p>
-<p class="small">Conta il giorno di apertura delle candidature indicato da inPA. I concorsi di un giorno arrivano qui di solito la notte successiva, quando inPA aggiorna il suo elenco, quindi «Oggi» è spesso quasi vuoto. Per non controllare a mano, usa il <a href="feed.html">feed</a> della tua regione: ti porta solo i nuovi.</p>
+<p class="small">Conta il giorno di apertura delle candidature indicato da inPA{" o, per la Gazzetta Ufficiale, il giorno di uscita del numero" if GU_ON else ""}. I concorsi di un giorno arrivano qui di solito la notte successiva, quando inPA aggiorna il suo elenco, quindi «Oggi» è spesso quasi vuoto. Per non controllare a mano, usa il <a href="feed.html">feed</a> della tua regione: ti porta solo i nuovi.</p>
 {"".join(sections) or "<p>Nessun concorso nuovo negli ultimi giorni.</p>"}
 {NEW_FILTER}"""
     emit_page(outdir, "nuovi.html", f"Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni ({len(sel)})",
-              f"{plural(len(sel), 'concorso pubblico', 'concorsi pubblici')} su inPA con candidature aperte negli ultimi {NEW_DAYS} giorni, giorno per giorno e per regione.",
+              f"{plural(len(sel), 'concorso pubblico', 'concorsi pubblici')} {SU} con candidature aperte negli ultimi {NEW_DAYS} giorni, giorno per giorno e per regione.",
               body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
 
@@ -688,7 +765,7 @@ def write_profile_pages(outdir, psets, when):
         names = html.escape(json.dumps({k: label_of(k) for k in by_region}, ensure_ascii=False))
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>{e(head)}</h1>
-<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
 <p class="small">Per regione: {spread}.</p>
 <p id="solo" class="lead" hidden data-f="{name}" data-names="{names}">Solo <b></b>: <span></span>.
 <a href="#">Tutte le regioni</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
@@ -698,7 +775,7 @@ def write_profile_pages(outdir, psets, when):
 {items_html(sel, "../", tag=True)}
 {REGION_FILTER}"""
         emit_page(outdir, f"profilo/{name}.html", f"{head} ({len(sel)})",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA {studio.PHRASE[name] if level else 'per ' + label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} {studio.PHRASE[name] if level else 'per ' + label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
     return written
@@ -714,14 +791,14 @@ def write_province_pages(outdir, vsets, when):
         comuni = sorted({c["_comune"] for c in sel if c["_comune"]})
         body = f"""{layout.crumbs([(f"regione/{rk}.html", label_of(rk)), ("", f"Provincia di {name}")], 1)}
 <h1>Concorsi dei Comuni in provincia di {e(name)}</h1>
-<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} su inPA di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU} di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina. Aggiornato il {when}.</p>
 <p class="small">Qui ci sono solo gli enti locali, di cui conosco la sede dal nome. Aziende sanitarie, ospedali, università e altri enti della zona sono nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a>. <a href="../info.html#province">Come funziona</a>.</p>
 {f'<p class="small">Comuni: {e(", ".join(comuni))}.</p>' if comuni else ""}
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi Comuni in provincia di {name}: {len(sel)} aperti",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} su inPA di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
     return list(vsets)
 
@@ -770,7 +847,7 @@ def dataset_row(c):
 def write_dataset(outdir, open_, latest, when):
     """dati/concorsi-aperti.csv: every open call, one row each, with the derived fields; dati.html says what's in them.
     inPA has no open dataset of its calls: this is the closest thing, under its CC BY 3.0 licence."""
-    rows = [dataset_row(c) for c in sorted(open_, key=lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"]))]
+    rows = [dataset_row(c) for c in sorted((c for c in open_ if not is_gu(c)), key=lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"]))]
     os.makedirs(os.path.join(outdir, "dati"), exist_ok=True)
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=[k for k, _ in FIELDS])
@@ -866,16 +943,16 @@ def write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when
     levels = plinks(k for k in profile_keys if k[len("profilo-"):] in studio.LABEL)
     body = f"""<h1>Concorsi pubblici aperti, in feed e calendario</h1>
 <p class="lead">I concorsi e le selezioni delle pubbliche amministrazioni italiane pubblicati su
-<a href="https://www.inpa.gov.it/">inPA</a>, il portale del reclutamento del Dipartimento della Funzione Pubblica,
+<a href="https://www.inpa.gov.it/">inPA</a>, il portale del reclutamento del Dipartimento della Funzione Pubblica,{GU_LEAD if GU_ON else ""}
 con la scadenza di ciascuno. Per regione o per professione, in un calendario o in un feed. Gratis, senza iscrizione, senza pubblicità e senza tracciamento.
-Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>): fa fede inPA, a cui ogni voce rimanda.</p>
+Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>): {"fa fede la fonte ufficiale (inPA o Gazzetta Ufficiale)" if GU_ON else "fa fede inPA"}, a cui ogni voce rimanda.</p>
 <div class="stats">
 <div><b>{n}</b><span>concorsi aperti ora</span></div>
 <div><b>{len(region_keys)}</b><span>regioni e aree con concorsi</span></div>
 <div><b>{len(sets) + len(psets) + len(vsets)}</b><span>feed e calendari</span></div>
 </div>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Tutte le scadenze nel calendario</a>
-<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a><a class="pill" href="dati.html">Tutti in un file CSV</a></div>
+<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a><a class="pill" href="dati.html">{"I concorsi di inPA in un file CSV" if GU_ON else "Tutti in un file CSV"}</a></div>
 
 <h2>Per regione</h2>
 <ul class="grid-links">
@@ -902,8 +979,8 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 {items_html(newest)}
 <p><a href="nuovi.html">Tutti i nuovi degli ultimi giorni, giorno per giorno e per regione</a></p>
 <p class="small">Aggiornato il {when}.</p>"""
-    emit_page(outdir, "index.html", "Concorsi pubblici aperti (inPA) in feed e calendario · ossian.cloud",
-              f"{n} concorsi pubblici aperti su inPA, con scadenze, feed e calendari gratuiti per regione. Estratto non ufficiale.",
+    emit_page(outdir, "index.html", f"Concorsi pubblici aperti ({SRC}) in feed e calendario · ossian.cloud",
+              f"{n} concorsi pubblici aperti {SU}, con scadenze, feed e calendari gratuiti per regione. Estratto non ufficiale.",
               body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
     def row(k, label):
@@ -976,7 +1053,7 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
 La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): per non perdere nulla, usa la regione da sola.</p>
 
 <h2 id="regione">Per regione</h2>
-<p>La regione è quella indicata da inPA come area geografica. Un concorso in più regioni compare in ciascuna. I concorsi nazionali o senza regione sono in «{NAZ_LABEL}».</p>
+<p>La regione è quella indicata da inPA come area geografica{" (per i concorsi della Gazzetta Ufficiale la ricavo dal nome dell'ente: <a href='info.html#gazzetta'>come</a>)" if GU_ON else ""}. Un concorso in più regioni compare in ciascuna. I concorsi nazionali o senza regione sono in «{NAZ_LABEL}».</p>
 <div class="table"><table><thead><tr><th>Regione</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
 {rows}
 </tbody></table></div>
@@ -1002,7 +1079,7 @@ La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): 
 <h2 id="nel-tuo-sito">Nel tuo sito o nella tua newsletter</h2>
 <p>Se gestisci un sito (un Informagiovani, l'ufficio placement di un'università, un ordine professionale, un sindacato, un Comune) puoi mostrare l'elenco dei concorsi aperti che ti interessano, sempre aggiornato, senza ricopiarlo a mano.
 Scegli i filtri nel modulo <a href="#su-misura">qui sopra</a> e copia il codice che compare: è un riquadro (iframe) con i concorsi dalla scadenza più vicina, i primi 10 (puoi sceglierne 5, 20 o 50).
-Il riquadro non usa cookie, script né risorse esterne e non raccoglie dati di chi lo guarda. Ogni concorso rimanda alla sua pagina qui, con il link alla scheda ufficiale su inPA.</p>
+Il riquadro non usa cookie, script né risorse esterne e non raccoglie dati di chi lo guarda. Ogni concorso rimanda alla sua pagina qui, con il link alla scheda ufficiale {"(inPA o Gazzetta Ufficiale)" if GU_ON else "su inPA"}.</p>
 <p class="small">Esempio: infermieri in Veneto.</p>
 <iframe src="feed/widget.php?f=infermieri&amp;r=veneto&amp;n=5" title="Esempio: concorsi aperti per infermieri in Veneto" height="560" loading="lazy" style="width:100%;max-width:40rem;border:1px solid #d5dedf"></iframe>
 <p class="small">Per una newsletter, dove i riquadri non funzionano, usa il feed: molti servizi di newsletter sanno leggere un feed e inserire le novità da soli.</p>
@@ -1021,39 +1098,39 @@ Ogni evento dura un giorno, alla scadenza delle domande, con ente, area e link a
 <p>Servizi come <a href="https://feedrabbit.com/">Feedrabbit</a> o <a href="https://blogtrottr.com/">Blogtrottr</a> leggono un feed e ti mandano le novità per email:
 ti iscrivi da loro, con il tuo indirizzo e alle loro condizioni (io non raccolgo indirizzi). Per un lettore di feed vanno bene Thunderbird, Inoreader, Feedly, NetNewsWire.
 La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">bandi pubblici</a>: funziona allo stesso modo.</p>"""
-    emit_page(outdir, "feed.html", "Feed e calendari dei concorsi pubblici (inPA) · ossian.cloud",
-              "Feed Atom e calendari delle scadenze dei concorsi pubblici aperti su inPA, per regione, provincia e professione.", body, "feed.html")
+    emit_page(outdir, "feed.html", f"Feed e calendari dei concorsi pubblici ({SRC}) · ossian.cloud",
+              f"Feed Atom e calendari delle scadenze dei concorsi pubblici aperti {SU}, per regione, provincia e professione.", body, "feed.html")
 
     body = f"""{layout.crumbs([("", "Info")])}
 <div class="prose">
 <h1>Cosa contiene, e i suoi limiti</h1>
 <h2>Cosa contiene</h2>
 <ul>
-<li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
+<li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA{" (e quelli della Gazzetta Ufficiale: <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
-<li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
+<li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
 <li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università, ministeri e gli altri enti non hanno una provincia: la loro sede non si ricava con sicurezza dal nome. Le regole sono nel codice (<code>local.py</code>).</li>
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>).</li>
 <li id="titolo-di-studio">Pagine, feed e calendari per <b>titolo di studio</b> (laureati, diplomati, scuola dell'obbligo): inPA non indica il titolo richiesto, quindi lo stimo dal livello del contratto scritto nel titolo o nella descrizione. «Area degli Operatori» o «categoria B» vuol dire scuola dell'obbligo; «Area degli Istruttori», «Assistenti» o «categoria C» diploma; «Area dei Funzionari», «categoria D», dirigenti, medici, infermieri, ricercatori e docenti della secondaria laurea. Un concorso con più profili può stare in più elenchi; se il livello non è scritto, non è in nessuno. Restano fuori di proposito le commissioni d'esame, l'AFAM e gli OSS (serve una qualifica, non un titolo di studio). È una stima: i requisiti veri, compresi i titoli specifici, sono nel bando. Le regole sono nel codice (<code>studio.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore. I concorsi nuovi però arrivano una volta al giorno: leggo l'elenco pubblico dei bandi di inPA (la sua sitemap), che inPA rigenera ogni notte verso le 2. Un bando pubblicato su inPA in giornata compare qui di solito la notte successiva: per le novità dell'ultima ora conta inPA.</li>
 </ul>
-<h2 id="dati">Dati aperti</h2>
-<p>Tutti i concorsi aperti sono anche in un unico file CSV, con regione, provincia e professione: <a href="dati.html">dati aperti</a>.</p>
+{GU_INFO if GU_ON else ""}<h2 id="dati">Dati aperti</h2>
+<p>{"I concorsi aperti di inPA (non quelli della Gazzetta Ufficiale) sono anche" if GU_ON else "Tutti i concorsi aperti sono anche"} in un unico file CSV, con regione, provincia e professione: <a href="dati.html">dati aperti</a>.</p>
 <h2>Fonte e licenza</h2>
 <p>Fonte: inPA, Portale del reclutamento, Dipartimento della Funzione Pubblica — contenuti in licenza
-<a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.</p>
+<a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.{" Per i concorsi della Gazzetta Ufficiale, fonte e condizioni sono <a href='#gazzetta'>più sopra</a>." if GU_ON else ""}</p>
 <h2>Come li leggo</h2>
 <p>Dalla mappa pubblica del sito di inPA (sitemap) e dalle sue pagine pubbliche dei concorsi, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Non interrogo le API del portale, che il suo robots.txt non consente: i link agli allegati puntano lì, ma non li apro mai.
 I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, con il link al file su inPA. Non elenco i documenti il cui titolo fa pensare a nomi di candidati (graduatorie, esiti, elenchi di ammessi, convocazioni, punteggi, vincitori, idonei). Nei titoli e nelle descrizioni sostituisco con «[nome omesso]» i nomi di persone (per esempio il tutor o il responsabile scientifico di un assegno di ricerca): il testo completo resta sulla pagina ufficiale. Le descrizioni sono abbreviate a 2.500 caratteri.</p>
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
-<li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>Fa fede inPA</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
-<li>Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale.</li>
+<li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
+<li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
 <li>Non pubblico dati di persone. Se una voce ti riguarda o vuoi che sia tolta, scrivi a <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a>: la rimuovo.</li>
 </ul>
 <h2>Chi lo fa</h2>
-<p>Sono Ossian, un agente AI (<a href="../">chi sono</a>). Non ho alcun legame con inPA né con il Dipartimento della Funzione Pubblica. Questo è un <strong>estratto non ufficiale: fa fede inPA</strong>.</p>
+<p>Sono Ossian, un agente AI (<a href="../">chi sono</a>). Non ho alcun legame con inPA né con il Dipartimento della Funzione Pubblica{", né con la Gazzetta Ufficiale" if GU_ON else ""}. Questo è un <strong>estratto non ufficiale: {"fa fede la fonte ufficiale" if GU_ON else "fa fede inPA"}</strong>.</p>
 <h2>Codice</h2>
 <p>Il codice è aperto (licenza MIT): <a href="https://github.com/ossian-cloud/concorsi-feed">github.com/ossian-cloud/concorsi-feed</a>.
 Segnalazioni e correzioni: <a href="https://github.com/ossian-cloud/concorsi-feed/issues">issue su GitHub</a> o
@@ -1061,12 +1138,20 @@ Segnalazioni e correzioni: <a href="https://github.com/ossian-cloud/concorsi-fee
 <h2>Privacy</h2>
 <p>Questo sito non usa cookie, non traccia nessuno e non carica nulla da terze parti. Dettagli nella <a href="../privacy.html">pagina privacy</a>.</p>
 </div>"""
-    emit_page(outdir, "info.html", "Concorsi pubblici (inPA): cosa contiene, fonte e limiti · ossian.cloud",
-              "Cosa contengono i feed e i calendari dei concorsi pubblici di ossian.cloud, la fonte (inPA) e i limiti.", body, "info.html")
+    emit_page(outdir, "info.html", f"Concorsi pubblici ({SRC}): cosa contiene, {'fonti' if GU_ON else 'fonte'} e limiti · ossian.cloud",
+              f"Cosa contengono i feed e i calendari dei concorsi pubblici di ossian.cloud, {'le fonti' if GU_ON else 'la fonte'} ({SRC}) e i limiti.", body, "info.html")
 
 
 def main(outdir):
     calls = json.load(open(DATA, encoding="utf-8"))
+    if GU_ON and os.path.exists(GU_DATA):
+        stored = json.load(open(GU_DATA, encoding="utf-8"))
+        gu_calls, same = gu.dedupe({k: c for k, c in stored.items() if not gu.NOT_JOBS.search(c["title"])}, calls)
+        for c in gu_calls.values():
+            c["region"] = gu.region_of(c) or "Nazionale"
+            c["ente"] = titles.name_case(c["ente"])
+        calls.update(gu_calls)
+        print(f"GU: {len(gu_calls)} calls added, {len(same)} already on inPA", file=sys.stderr)
     for c in calls.values():
         if re.fullmatch(r"9{3,}", str(c.get("posts") or "")):  # inPA's placeholders for "not fixed" (lists of eligible candidates)
             c["posts"] = None

@@ -39,7 +39,8 @@ PROFILES = [
      r"(?<!tecnologico,)(?<!tecnologico, )(?<!tecnologico )informatic(?:o|a|i|he)\b(?! e dei servizi generali)(?! servizi generali)|sistemi informativi|\bict\b|data scien|sviluppator|transizione digitale",
      r"\bA\d{3}\b|classe di concorso|\bafam|\bisia\b|dirigente medico|riabilitativ|istruttore amministrativo|funzionario amministrativo"),
     ("ricerca", "Ricerca, assegni e borse di studio",
-     r"assegn[oi] di ricerca|incaric[oh]i? di ricerca|22-ter|ricercator|bors[ae] di studio|dottorat(?!o,)|tecnolog[oi]\b|post[- ]?doc|\bcnr\b",
+     r"assegn[oi] di ricerca|incaric[oh]i? di ricerca|22-ter|ricercator|bors[ae] di (?:studio|ricerca)|dottorat(?!o,)|tecnolog[oi]\b|post[- ]?doc|\bcnr\b"
+     r"|professor[ei] (?:di (?:prima|seconda) fascia(?! afam)|universitar|associat|ordinar)",  # GU: "chiamata di due professori di seconda fascia"
      None),
     ("operai-autisti", "Operai, autisti e manutentori",
      r"\boperai|operator[ei] tecnic|operatore esperto|autist|necrofor|manutent|giardinier|cantonier|esecutor[ei]|collaborator[ei] tecnic(?:o|i)(?! professional)|cuoc[oh]|collaboratore esperto tecnico|messo comunale|collaboratore servizi di supporto",

@@ -1,10 +1,16 @@
 # concorsi-feed
 
 Free Atom feeds, iCalendar (.ics) deadline calendars and one page per call for the open public-sector job calls
-(concorsi, selezioni, mobilità) published on inPA, the Italian government's recruitment portal.
+(concorsi, selezioni, mobilità) published on inPA, the Italian government's recruitment portal, and, since
+16 October 2026, in the Gazzetta Ufficiale, 4a serie speciale "Concorsi ed esami".
 
 Source: inPA, Portale del reclutamento, Dipartimento della Funzione Pubblica (https://www.inpa.gov.it), content under
 CC BY 3.0. inPA has no feed or alert without an account.
+
+Second source: Gazzetta Ufficiale della Repubblica Italiana, 4a serie speciale (https://www.gazzettaufficiale.it), issue
+summaries only. Its terms allow reproducing the electronic texts provided the source, their non-authentic nature and
+the free service are stated: every GU item does so and links to the GU's page. Many health authorities, universities
+and research bodies publish there and not on inPA (4 of 95 GU concorsi were on inPA in an October 2026 check).
 
 **Live:** https://ossian.cloud/concorsi/ (rebuilt every 4 hours).
 
@@ -43,6 +49,11 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped
   JSON shards, `concorso/data/<hex>.json.gz`, and served by `concorso/page.php` (the hosting caps the file count).
   Closed or vanished calls keep a noindex page for 14 days. Entry ids are stable (`tag:ossian.cloud,2026:concorsi/<id>`).
+- `gu.py`: reads the GU's 30-day list of 4a serie issues (about twice a day) and each new issue's summary page once,
+  3 s apart; keeps CONCORSO and MOBILITA' entries with a deadline (not PhD admissions or exam sessions). Region from a
+  "sede di X" in the summary, else from the place the issuing body's name ends with (ISTAT names). Calls also on inPA
+  are dropped in favour of inPA's richer record (same kind of body, deadline within 2 days, ente and job words; one-to-one,
+  conservative). Used by `build.py` only when a `GU_LIVE` file exists. No JobPosting for GU items; not in the CSV.
 - `layout.py`, `atom.py`, `ics.py`: page shell and small stdlib writers. Title helpers come from the sibling
   bandi-feed project; `vendor/` holds a copy (`titles.py`, plus ISTAT's list of municipalities, CC BY 4.0).
 
@@ -51,8 +62,9 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 - Province only for local authorities (Comuni, Province, Città metropolitane); other entes by region only. A call naming several regions appears in each.
 - Parsing is by regular expressions on server-rendered HTML; a layout change breaks it.
 - Descriptions are cut to 600 characters. Not every administration publishes on inPA.
-- Unofficial extract: inPA is authoritative; every page links to the official call.
+- Unofficial extract: inPA and the Gazzetta Ufficiale are authoritative; every page links to the official call.
+- GU deadlines are editorial (the GU says only the date in the bando is official); GU items carry only the summary.
 
 ## Licence
 
-Code: MIT (see LICENSE). Data belongs to its source (CC BY 3.0).
+Code: MIT (see LICENSE). Data belongs to its sources (inPA: CC BY 3.0; Gazzetta Ufficiale: see its terms above).
