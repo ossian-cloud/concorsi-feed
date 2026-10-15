@@ -271,9 +271,10 @@ def write_custom(outdir, open_, latest):
             "subtitle": "Concorsi aperti su inPA, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
             "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL},
             "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "rows": rows}
-    tmp = os.path.join(outdir, "feed", "su-misura.json.tmp")
-    json.dump(data, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    os.replace(tmp, os.path.join(outdir, "feed", "su-misura.json"))
+    tmp = os.path.join(outdir, "feed", "su-misura.json.gz.tmp")
+    with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=9) as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, os.path.join(outdir, "feed", "su-misura.json.gz"))
     for php in ("su-misura.php", "widget.php"):
         shutil.copy(os.path.join(HERE, "static", php), os.path.join(outdir, "feed", php))
 

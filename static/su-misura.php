@@ -50,7 +50,7 @@ if (mb_strlen($q) > 120) fail(400, 'Parametro troppo lungo.');
 if ($fmt !== '' && $fmt !== 'ics') fail(400, 'Formato non valido: ometti il parametro per il feed, usa formato=ics per il calendario.');
 $cal = $fmt === 'ics';
 
-$file = __DIR__ . '/su-misura.json';
+$file = __DIR__ . '/su-misura.json.gz';  // gzipped: plain, the two tools' files took 16 MB of the 100 MB hosting (15 Oct)
 $mtime = @filemtime($file);
 if ($mtime === false) fail(503, 'Dati non disponibili, riprova più tardi.');
 $etag = '"' . $mtime . '-' . (int)@filemtime(__FILE__) . '-' . md5(implode("\0", [$r, $p, $f, $q, $fmt])) . '"';
@@ -61,6 +61,7 @@ $inm = array_map(fn($t) => preg_replace('/^W\//', '', trim($t)), explode(',', $_
 if (in_array($etag, $inm, true)) { http_response_code(304); exit; }
 
 $raw = @file_get_contents($file);
+if ($raw !== false) $raw = @gzdecode($raw);
 $D = $raw === false ? null : json_decode($raw, true);
 unset($raw);
 if (!is_array($D)) fail(503, 'Dati non disponibili, riprova più tardi.');

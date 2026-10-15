@@ -18,7 +18,7 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   and attachments are only linked, never downloaded. Attachments whose title suggests candidates' names (graduatorie, esiti,
   ammessi...) are dropped. Records go to `data/calls.json`; calls that leave the sitemap are kept 14 days, flagged `gone`.
 - `static/su-misura.php`: a feed (or, with `formato=ics`, a calendar) for any profession (`f`), region key (`r`) and words
-  (`q`), read from `feed/su-misura.json`, which `build.py` writes with ready-made entries. Reads only the query string,
+  (`q`), read from `feed/su-misura.json.gz`, which `build.py` writes with ready-made entries. Reads only the query string,
   stores nothing.
 - `dati/concorsi-aperti.csv` (written by `build.py`, documented on `dati.html`): every open call, one row each, with
   the derived region, province, comune and professions. inPA publishes no open dataset of its calls; this one keeps
