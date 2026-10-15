@@ -32,6 +32,10 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   list of municipalities inside the call's region, via `geo.py`); other entes get none
 - `profili.py`: guesses the professions a call is for (16 families: amministrativi, tecnici, polizia locale, infermieri...)
   from keyword patterns on its title; inPA has no profession field. A call can be in several families or none.
+- `studio.py`: guesses the minimum education a call asks for (laureati, diplomati, scuola dell'obbligo) from the contract
+  level named in its title, or in inPA's short description (Area degli Operatori / Istruttori / Funzionari, categoria B/C/D,
+  then job words like dirigente or infermiere). OSS, AFAM teaching and exam boards are left out. These levels reuse the
+  profession pages, feeds and the `f` filter (`profilo/diplomati.html`, `f=diplomati`), and fill the CSV column `titolo_studio_stimato`.
 - `what.py`: for lists, feed and calendar titles, drops the procedural words in front of the job ("Concorso pubblico, per
   titoli ed esami, per la copertura a tempo pieno e indeterminato di n. 2 posti di..." -> "Concorso: n. 2 posti di...").
 - `build.py OUTDIR`: writes the index, one page per region, per profession and per province (local authorities only), Atom feeds and .ics calendars (Italy, each region, each profession, and
