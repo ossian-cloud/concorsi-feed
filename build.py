@@ -229,6 +229,11 @@ def posted(c):
     return c.get("opens") or c["lastmod"][:16]
 
 
+# notices posted as if they were calls: "Revoca concorso pubblico per n. 6 posti di Dirigente Psicologo" (ASP Ragusa,
+# on inPA open until 2027). No page, no listing.
+NOT_A_CALL = re.compile(r"^\W*(?:avviso di |comunicazione di |provvedimento di )?(?:revoca|annullamento|sospensione)\b", re.I)
+
+
 def classify(calls, now):
     """Split the calls into those with a page and those open. Returns (open, kept): kept = open plus closed or
     vanished ones still inside GRACE_DAYS. A call without a usable deadline counts as open while listed."""
@@ -236,6 +241,8 @@ def classify(calls, now):
     cut = (now - dt.timedelta(days=GRACE_DAYS)).strftime("%Y-%m-%d")
     open_, kept = [], []
     for c in calls.values():
+        if NOT_A_CALL.search(c["title"]):
+            continue
         end = c["closes"][:10] if valid_closes(c) else None
         if end and end < cut:
             continue
