@@ -142,14 +142,26 @@ def gu_job(t):
     m = re.search(r"\bbors[ae] di (ricerca|studio)\b(.*)", t, re.I)
     if m and t.lower().startswith("conferimento"):
         where = re.search(r"presso (?:la sede(?: secondaria)? di|l[ae']\s?[^,]*? di) ([A-Z][\w'’ ]+?)(?:[.,]|\s+della|$)", m.group(2))
-        many = re.search(r"\bborse\b", t, re.I)
-        return f"Bors{'e' if many else 'a'} di {m.group(1).lower()}" + (f" a {where.group(1)}" if where else "")
-    m = re.search(r"\b(?:direttore|direzione) (?:della |di |dell[a'] ?)?(?:struttura complessa|unit[aà] operativ[ae] complesse?|u\.?o\.?c\.?|s\.?c\.?)\b\s*(.*)", t, re.I)
+        many = re.search(r"\b(\w+) borse\b", t, re.I)
+        n = NUMBER_WORDS.get(many.group(1).lower(), "") if many else ""
+        return (f"{n} borse" if n else "Borse" if many else "Borsa") + f" di {m.group(1).lower()}" + (f" a {where.group(1)}" if where else "")
+    m = re.search(r"\b(?:direttore|direzione) (?:della |di |dell[a'] ?)?(?:struttura (?:operativa )?complessa|unit[aà] operativ[ae] complesse?|u\.?o\.?c\.?|s\.?c\.?)\b\s*(.*)", t, re.I)
     if m and t.lower().startswith("conferimento"):
-        rest = re.sub(r"^(?:per (?:la |l['’]|il )?(?:direzione (?:della |dell['’])?)?)?(?:di |denominata |«)?", "", m.group(1)).strip(" ,.»")
+        rest = re.sub(r"^(?:per (?:la |l['’]|il )?(?:direzione (?:della |dell['’])?)?)?(?:di |denominata |«)?", "", m.group(1).lstrip(" ,"))
+        rest = re.sub(r"^(?:S\.?C\.?|U\.?O\.?C\.?)\s+(?=[A-Z])", "", rest).strip(" ,.»")
         sub = " (supplenza)" if re.search(r"supplenz|sostitut", t, re.I) else ""
         return "Direttore di struttura complessa" + sub + (f": {rest}" if rest else "")
+    m = re.match(r"(?:procedur[ae]|valutazion[ei])(?: [\w'-]+){1,3} per (?:la )?chiamata di (\w+) (professor[ei]\b.*)", t, re.I)
+    if m and not re.search(r"\b(?:e per|nonch[eé])\b", m.group(2), re.I):  # mixed calls (professors and researchers) stay as they are
+        n = m.group(1).lower()
+        if n in ("un", "uno", "una"):
+            return "Professore" + m.group(2)[len("professore"):] if m.group(2).lower().startswith("professore") else t
+        return f"{NUMBER_WORDS.get(n, m.group(1))} {m.group(2)}" if n in NUMBER_WORDS or n.isdigit() else t
     return t
+
+
+NUMBER_WORDS = {w: str(i) for i, w in enumerate("zero uno due tre quattro cinque sei sette otto nove dieci undici dodici "
+                                                "tredici quattordici quindici sedici diciassette diciotto diciannove venti".split()) if i > 1}
 
 
 def short_title(c, n=100):
