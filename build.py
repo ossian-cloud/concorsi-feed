@@ -142,7 +142,15 @@ def gu_job(t):
                  r"(?:della|dello|dell['’]\s?|del)\s*(.+)", t, re.I)
     if m:  # a reopened call: short_title() says so in front
         t = m.group(1)[0].upper() + m.group(1)[1:]
-    t = re.sub(r",? a valenza (?:non )?regionale,? (?:ed? )?in forma (?:autonoma|aggregata),?|,? in forma aggregata,?", "", t, flags=re.I)
+    t = re.sub(r"\b((?:inter)?regionale)/((?:inter|extra)regionale)\b", r"\1 ed \2", t, flags=re.I)  # what.py cuts at "/"
+    t = re.sub(r",? a valenza (?:non )?regionale,? (?:ed? )?in forma (?:autonoma|aggregata),?|,? in forma aggregata,?"
+               r"|,? in forma autonoma,? a valenza (?:non )?regionale,?|,? in regime di autonomia e con valenza per [^,]+,?", "", t, flags=re.I)
+    m = re.match(r"(?:procedur[ae]|valutazion[ei])(?: [\w'’-]+){0,2}(?:, per [^,]+,)? per la copertura (?:di )?(?:(\w+) )?post[oi] di ricercator[ei]\b(.*)", t, re.I)
+    if m and not re.search(r"\b(?:e per|nonch[eé])\b", m.group(2), re.I):  # university researchers, as for professors below
+        n = (m.group(1) or "").lower()
+        if n in ("un", "uno", "una"):
+            return "Ricercatore" + m.group(2)
+        return (f"{NUMBER_WORDS[n]} ricercatori" if n in NUMBER_WORDS else f"{n} ricercatori" if n.isdigit() else "Ricercatori") + m.group(2)
     m = re.search(r"\bbors[ae] di (ricerca|studio)\b(.*)", t, re.I)
     if m and t.lower().startswith("conferimento"):
         where = re.search(r"presso (?:la sede(?: secondaria)? di|l[ae']\s?[^,]*? di) ([A-Z][\w'’ ]+?)(?:[.,]|\s+della|$)", m.group(2))
