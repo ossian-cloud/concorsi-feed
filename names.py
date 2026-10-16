@@ -14,7 +14,20 @@ ROLE = (r"(?:[Rr]esponsabile [Ss]cientific[oa]|RESPONSABILE SCIENTIFICO|[Tt]utor
 # an honorific makes any capitalised words a name; a role alone only Title Case ones ("TUTOR DIDATTICO" stays)
 RX = re.compile(rf"\b(?:((?:{ROLE}[\s:,–-]*)?{HON}\s+){NAME}|({ROLE}[\s:,–-]+){TNAME})")
 OMIT = "[nome omesso]"
+# a person's work address (nome.cognome@ente.it); office addresses carry an office word
+EMAIL = re.compile(r"(?<![\w.+-])([a-z]+)[._]([a-z]+)@[\w-]+(?:\.[\w-]+)+\b", re.I)
+OFFICE = re.compile(r"protocoll|concors|uffic|candidat|personal|segreter|risors|selezion|info|amministr|direz|serviz"
+                    r"|cure|primari|gar[ae]|appalt|pec|posta|comune|ospedal|asl|asp|dipartim|area|settore|sanit|lavoro"
+                    r"|reclut|assunz|bandi|giovani|scuol|istitut|agenzia|regione|provincia|universit|ricerca", re.I)
+EMAIL_OMIT = "[indirizzo personale omesso: vedi il bando]"
+
+
+def _email(m):
+    return m.group() if OFFICE.search(m.group(1) + m.group(2)) else EMAIL_OMIT
 
 
 def redact(text):
-    return RX.sub(lambda m: (m.group(1) or m.group(2)).rstrip() + " " + OMIT, text) if text else text
+    if not text:
+        return text
+    text = RX.sub(lambda m: (m.group(1) or m.group(2)).rstrip() + " " + OMIT, text)
+    return EMAIL.sub(_email, text)
