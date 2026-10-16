@@ -178,7 +178,7 @@ def short_title(c, n=100):
     if len(parts) > 2 and kind is not None:  # "UNI. MILANO-BICOCCA / CONCORSO PUBBLICO / PER ESAMI / N. 1 POSTO / ..."
         t = ", ".join(parts[kind:])  # what's before the procedure labels the ente, which is shown anyway
     if c.get("gu_type") == "RIAPERTURA":
-        return titles.cut("Termini riaperti: " + what.what(titles.sentence_case(t), c.get("ente")), n)
+        return titles.cut("Termini riaperti – " + what.what(titles.sentence_case(t), c.get("ente")), n)
     return titles.cut(what.what(titles.sentence_case(t), c.get("ente")), n)
 
 
@@ -256,8 +256,8 @@ def countdown(c, today):
 
 GU_DEADLINE_NOTE = "<br><small>(indicata dalla Gazzetta Ufficiale: la data e l'ora ufficiali sono nel bando)</small>"
 # reopenings have no GU deadline: gu.py reads it from the text ("entro il trentesimo giorno successivo...")
-GU_REOPEN_NOTE = ("<br><small>(calcolata da me dal testo dell'avviso di riapertura, di solito 30 giorni dalla pubblicazione"
-                  " in Gazzetta; se cade in un giorno festivo slitta al primo giorno non festivo. La data e l'ora ufficiali sono nel bando)</small>")
+GU_REOPEN_NOTE = ("<br><small>(calcolata da me dal testo dell'avviso di riapertura: i giorni indicati dall'avviso a partire"
+                  " dalla pubblicazione in Gazzetta, spostati al primo giorno non festivo. La data e l'ora ufficiali sono nel bando)</small>")
 GU_PAGE_NOTE = ("Questo concorso è pubblicato nella Gazzetta Ufficiale, 4ª serie speciale, e non risulta tra i concorsi di inPA che leggo (il confronto è automatico: qualche doppione può sfuggire). "
                 "Qui c'è solo il sommario della Gazzetta (testo non autentico, riprodotto gratuitamente): requisiti, "
                 "modalità e scadenza ufficiale sono nel bando, che trovi in Gazzetta o sul sito dell'ente.")
@@ -269,7 +269,7 @@ GU_INFO = f"""<h2 id="gazzetta">Concorsi dalla Gazzetta Ufficiale</h2>
 In un mio controllo di ottobre 2026, dei 95 concorsi di due numeri della Gazzetta solo 4 erano anche su inPA. Per questo aggiungo anche quelli.</p>
 <ul>
 <li>Leggo il sommario di ogni numero (esce il martedì e il venerdì) dalle pagine pubbliche della Gazzetta, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Tengo solo le voci «concorso» e «mobilità» con una scadenza: niente graduatorie, esiti, diari delle prove, ammissioni ai dottorati o sessioni di esami di abilitazione.</li>
-<li>Le <b>riaperture dei termini</b> sono elencate come concorsi, con «Termini riaperti» nel titolo. Il sommario della Gazzetta non dà la loro scadenza: la ricavo dal testo dell'avviso (di solito 30 giorni dalla pubblicazione), e la pagina lo dice. Quando la Gazzetta pubblica l'<b>annullamento</b> di un concorso e indica il numero in cui era uscito, tolgo quel concorso dagli elenchi.</li>
+<li>Le <b>riaperture dei termini</b> sono elencate come concorsi, con «Termini riaperti» nel titolo. Il sommario della Gazzetta non dà la loro scadenza: la ricavo dal testo dell'avviso (di solito 30 giorni dalla pubblicazione, spostati al primo giorno non festivo), e la pagina lo dice. Quando la Gazzetta pubblica l'<b>annullamento</b> di un concorso e indica il numero in cui era uscito, tolgo quel concorso dagli elenchi.</li>
 <li>Di ogni concorso c'è solo il <b>sommario</b> della Gazzetta: ente, una riga su cosa si cerca, la scadenza. Requisiti e modalità per candidarsi sono nel bando, sulla Gazzetta o sul sito dell'ente: ogni voce rimanda alla pagina della Gazzetta.</li>
 <li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Controllala sempre.</li>
 <li>La <b>regione</b> la ricavo dal luogo nel nome dell'ente («… di Seriate», «… - Chieri»), cercandolo nell'elenco dei comuni dell'ISTAT; gli enti senza un luogo nel nome (Banca d'Italia, ministeri) vanno in «{NAZ_LABEL}». La provincia c'è solo per i Comuni, come per inPA.</li>

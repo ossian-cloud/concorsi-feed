@@ -61,6 +61,9 @@ BLOCKED = os.path.join(HERE, "data", "BLOCKED-GU")
 MONTHS = {m: i + 1 for i, m in enumerate("gennaio febbraio marzo aprile maggio giugno luglio agosto settembre "
                                           "ottobre novembre dicembre".split())}
 
+# geo.py (bandi's, or the copy in vendor/ in the public repo): used by the annulment matching and by build.py
+sys.path += [os.path.join(HERE, "..", "bandi"), os.path.join(HERE, "vendor")]  # appended: our own modules win
+
 _last = 0.0
 
 
@@ -174,13 +177,25 @@ def act_text(e):
     return _acts[e["code"]]
 
 
+def _holiday(d):
+    """Sunday or Italian national holiday: a deadline falling on one moves to the next working day."""
+    y = d.year
+    a, b, c = y % 19, y // 100, y % 100  # Easter (Meeus/Jones/Butcher), for Easter Monday
+    h = (19 * a + b - b // 4 - (b - (8 * b + 13) // 25 + 1) // 3 + 15) % 30
+    l = (32 + 2 * (b % 4) + 2 * (c // 4) - h - c % 4) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    easter = dt.date(y, (h + l - 7 * m + 114) // 31, (h + l - 7 * m + 114) % 31 + 1)
+    fixed = {(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)}
+    return d.weekday() == 6 or (d.month, d.day) in fixed or d == easter + dt.timedelta(days=1)
+
+
 def reopen_deadline(body, date):
-    """Deadline of a reopened call from its text: an explicit date after 'entro', or N days after this GU
-    issue (the usual "trentesimo giorno successivo alla data di pubblicazione ... Gazzetta Ufficiale")."""
+    """Deadline of a reopened call from its text. First N days after this GU issue (the usual "trentesimo giorno
+    successivo alla data di pubblicazione ... Gazzetta Ufficiale"), moved past Sundays and holidays as the texts say;
+    else one explicit date after "entro" in a sentence about applications, later than the issue and within 120 days
+    (texts also name old deadlines and other dates)."""
     low = body.lower()
-    m = re.search(r"\bentro\b(?: e non oltre)?(?: le ore [\d.:]+)?(?: del)?(?: giorno)?\s+(?:il\s+)?(\d{1,2})\s+([a-z]+)\s+(\d{4})", low)
-    if m and m.group(2) in MONTHS:
-        return deadline(" ".join(m.groups()))
+    issued = dt.date.fromisoformat(date)
     m = re.search(r"\b(\w+esimo|\d+)\s*(?:°\s*)?giorno\s+(?:naturale\s+)?successivo"
                   r"|\b(\d+|quindici|venti|trenta|quarantacinque|sessanta)\s+(?:\(\w+\)\s+)?giorni,?\s+(?:naturali\s+(?:e\s+)?consecutivi\s+)?"
                   r"(?:decorrent|successiv|dalla)", low)
@@ -188,8 +203,19 @@ def reopen_deadline(body, date):
         v = m.group(1) or m.group(2)
         n = ORDINALS.get(v) or WORDS.get(v) or (int(v) if v.isdigit() else None)
         if n and 5 <= n <= 90:
-            return (dt.date.fromisoformat(date) + dt.timedelta(days=n)).isoformat() + "T23:59"
-    return None
+            d = issued + dt.timedelta(days=n)
+            while _holiday(d):
+                d += dt.timedelta(days=1)
+            return d.isoformat() + "T23:59"
+    found = set()
+    for sentence in re.split(r"(?<=[a-z0-9)»])\.\s", low):
+        if "domand" not in sentence:
+            continue
+        for g in re.findall(r"\bentro\b(?: e non oltre)?(?: le ore [\d.:,]+)?(?: del)?(?: giorno)?\s+(?:il\s+)?(\d{1,2})\s+([a-z]+)\s+(\d{4})", sentence):
+            iso = deadline(" ".join(g))
+            if iso and issued < dt.date.fromisoformat(iso[:10]) <= issued + dt.timedelta(days=120):
+                found.add(iso)
+    return found.pop() if len(found) == 1 else None
 
 
 def issue_refs(body):
@@ -203,23 +229,26 @@ def issue_refs(body):
     return out
 
 
-def apply_cancels(calls, cancels):
+def apply_cancels(calls, cancels, issues=()):
     """Drop stored GU calls an annulment points to: same body, from an issue the annulment names. Returns lines to log."""
     log = []
     for code, a in cancels.items():
         if a.get("dropped"):  # a re-read may have stored it again
             calls.pop(a["dropped"]["id"], None)
             continue
-        hit = []
-        for n, d in a["refs"]:  # the first referenced issue holding a call of this body
-            ref = f"n. {n} del {d[8:10]}/{d[5:7]}/{d[:4]}"
-            hit = [k for k, c in calls.items() if c.get("gu_issue") == ref and c.get("ente") == a["ente"] and c.get("gu_code") != code]
-            if hit:
-                break
+        # the first referenced issue that is a GU issue I hold: the annulled publication. Never fall through to a
+        # later reference, which is often the older, valid publication of the same call.
+        held = {c.get("gu_issue") for c in calls.values()} | {f"n. {k.split('/')[1]} del {k[8:10]}/{k[5:7]}/{k[:4]}"
+                                                              for k in issues if "/" in k}
+        refs = [f"n. {n} del {d[8:10]}/{d[5:7]}/{d[:4]}" for n, d in a["refs"]]
+        ref = next((r for r in refs if r in held), None)
+        words = set(_words(a["summary"]))
+        hit = [k for k, c in calls.items() if ref and c.get("gu_issue") == ref and c.get("ente") == a["ente"]
+               and c.get("gu_code") != code and len(words & set(_words(c["title"]))) >= 3]
         if len(hit) > 1:
-            words = set(_words(a["summary"]))
-            best = max(hit, key=lambda k: len(words & set(_words(calls[k]["title"]))))
-            hit = [best]
+            score = {k: len(words & set(_words(calls[k]["title"]))) for k in hit}
+            top = max(score.values())
+            hit = [k for k in hit if score[k] == top]  # a tie stays ambiguous: logged, nothing dropped
         if len(hit) == 1:
             c = calls.pop(hit[0])
             a["dropped"] = {"id": hit[0], "gu_code": c.get("gu_code"), "title": c["title"][:120]}
@@ -271,7 +300,7 @@ def main():
                 cancels[e["code"]] = {"ente": e["ente"], "summary": e["summary"], "date": d,
                                       "refs": [r for r in issue_refs(body) if r[1] != d]}
         seen[f"{d}/{n}"] = {"entries": len(entries), "fetched": dt.datetime.now().isoformat(timespec="minutes")}
-    for line in apply_cancels(calls, cancels):
+    for line in apply_cancels(calls, cancels, seen):
         print(line, file=sys.stderr)
     cut = (dt.date.today() - dt.timedelta(days=60)).isoformat()
     calls = {k: c for k, c in calls.items() if (c["closes"] or c["opens"])[:10] >= cut}
@@ -296,6 +325,9 @@ REGION_WORDS = {"FRIULI VENEZIA GIULIA": "Friuli-Venezia Giulia", "TRENTINO": "T
 
 
 SEDE = re.compile(r"\b(?:sede(?: secondaria| operativa)? di|porto di|presso il comune di)\s+([A-Z][\w'’]+(?:\s+(?:[A-Z][\w'’]+|d[ei]l?|sul|in|di))*)")
+# "per l'Ospedale Sacro Cuore di Gesu' di Benevento": the last "di X" before a comma or full stop (a religious order's
+# hospital is elsewhere than the order's seat)
+HOSPITAL = re.compile(r"\b(?:[Oo]spedal[ei]|[Pp]residio ospedaliero)\b[^,.;]* di ([A-Z][\w'’]+(?:\s+[A-Z][\w'’]+)*)")
 
 
 def region_of(c):
@@ -303,7 +335,7 @@ def region_of(c):
     la sede secondaria di Verbania", "ormeggiatori porto di Cagliari") wins over the issuing body's seat; then the
     body's name; else None (national or unknown)."""
     import geo
-    for m in SEDE.finditer(c.get("title") or ""):
+    for m in [*SEDE.finditer(c.get("title") or ""), *HOSPITAL.finditer(c.get("title") or "")]:
         words = m.group(1).split()
         for j in range(len(words), 0, -1):
             name = " ".join(words[:j])
