@@ -283,7 +283,8 @@ def same_call(g, c):
     ge, ce = _words(g["ente"]) - GENERIC, _words(c["ente"].split("\n")[0]) - GENERIC  # inPA's ente may carry scraped junk after a newline
     if not ge or not ce or len(ge & ce) < max(1, 0.6 * min(len(ge), len(ce))) or (len(ge & ce) < 2 and min(len(ge), len(ce)) > 1):
         return 0
-    if g.get("posts") and c.get("posts") and g["posts"] != c["posts"]:
+    bundle = gap == 0 and re.search(r"\bvari profili\b", g["title"], re.I)  # one GU notice, several inPA calls
+    if g.get("posts") and c.get("posts") and g["posts"] != c["posts"] and not bundle:
         return 0
     mob = lambda t: bool(re.search(r"mobilit", t, re.I))
     if mob(g["title"]) != mob(c["title"]):
@@ -296,6 +297,11 @@ def same_call(g, c):
     jw = _words(job.group(1)) - GENERIC - COMMON - ge if job else set()
     if len(jw) >= 2 and jw <= ct:
         score = max(score, 0.9)
+    if not score and gap == 0:  # same ente, same deadline day, and a summary too generic to compare words
+        borse = re.search(r"\b(\w+) borse\b", g["title"], re.I)
+        n = WORDS.get(borse.group(1).lower()) if borse else None
+        if bundle or (n and n == c.get("posts")):
+            score = 0.5
     return score
 
 
