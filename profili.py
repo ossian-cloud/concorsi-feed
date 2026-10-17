@@ -22,7 +22,8 @@ PROFILES = [
      r"banda musicale"),
     ("medici", "Medici",
      r"dirigent[ei] medic|medic[oi] (?:chirurg|specialist|veterinar|di medicina|del|per|di)|disciplina di|direzione (?:della |di )?(?:s\.?\s?c\.?|struttura complessa|u\.?o\.?c\.?)\b|specialist[ai] ambulatorial|guardia medica|continuit[aà] assistenziale|direttore (?:della |di )?(?:s\.?\s?c\.?|struttura complessa|u\.?o\.?c\.?)\b|\bpsichiatr[ai]\b|\banestesist[ai]\b|\bpediatr[ai]\b|\bcardiolog[oi]\b|\bradiolog[oi]\b",
-     r"professioni sanitarie|dirigente (?:psicolog|biolog|farmacist|chimic|fisic|veterinari|ingegner|sanitari|delle professioni)"),
+     r"professioni sanitarie|dirigente (?:psicolog|biolog|farmacist|chimic|fisic|veterinari|ingegner|sanitari|delle professioni)"
+     r"|ordine (?:provinciale |interprovinciale |regionale )?dei medici"),  # staff of the Ordine dei medici chirurghi, not doctors
     ("infermieri", "Infermieri",
      r"infermier",
      None),
