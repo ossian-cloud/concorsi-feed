@@ -1052,6 +1052,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
     vrows = "\n".join(row(k, vsets[k][0]) for k in sorted(vsets, key=lambda k: (label_of(prov_region(vsets[k][1])), k)))
     popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items() if k[len("profilo-"):] not in studio.LABEL)
     popts += '\n<optgroup label="Titolo di studio (stima)">' + "".join(f'<option value="{k}">{e(lab)}</option>' for k, lab in studio.LABEL.items()) + "</optgroup>"
+    popts += '\n<optgroup label="Medici, per disciplina">' + "".join(f'<option value="{k}">{e(lab)}</option>' for k, lab in sorted(discipline.LABEL.items(), key=lambda x: x[1])) + "</optgroup>"
     ropts = "\n".join(f'<option value="{k}">{e(label_of(k))}</option>' for k in [slug(r) for r in REGIONS] + [NAZ])
     vopts = "\n".join(f'<option value="{k[5:]}">{e(lab)}</option>' for k, (lab, _) in vsets.items())
     body = f"""{layout.crumbs([("", "Feed e calendari")])}
