@@ -92,7 +92,7 @@ $only = array_filter(['r' => $r, 'p' => $p, 'f' => $f, 'q' => $q], fn($s) => $s 
 $all = $D['base'] . '/';
 if (count($only) === 1 && $r !== '') $all .= 'regione/' . $r . '.html';
 elseif (count($only) === 1 && $p !== '') $all .= 'provincia/' . $p . '.html';
-elseif (count($only) === 1 && $f !== '') $all .= 'profilo/' . $f . '.html';
+elseif (count($only) === 1 && $f !== '') $all .= in_array($f, $D['disciplines'] ?? [], true) ? 'profilo/medici.html#' . $f : 'profilo/' . $f . '.html';
 elseif ($only) $all .= 'feed.html#su-misura';
 $page = !str_ends_with($all, '#su-misura');
 

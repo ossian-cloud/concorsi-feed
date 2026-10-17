@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "bandi"))  # titles.py: sentence case, cut, ente names
 sys.path.insert(0, os.path.join(HERE, "vendor"))  # the same file, copied in the public repo
 sys.path.insert(0, HERE)  # after it, so our layout/atom/ics win over bandi's
+import discipline
 import layout
 import local
 import gu
@@ -375,13 +376,14 @@ def write_custom(outdir, open_, latest):
     One row per open call, newest first, with the filter fields and the ready-made entry and event."""
     rows = []
     for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
-        rows.append({"r": keys_of(c), "f": c["_prof"] + c["_studio"], "p": slug(c["_prov"]) if c["_prov"] else "",
+        rows.append({"r": keys_of(c), "f": c["_prof"] + c["_studio"] + c["_disc"], "p": slug(c["_prov"]) if c["_prov"] else "",
                      "t": " ".join(fold(f'{c["title"]} {c.get("ente") or ""}').split()),
                      "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else "",
                      "w": [short_title(c, 110), c["id"], ente_short(c, 60), c["closes"] if valid_closes(c) else ""]})
     data = {"updated": latest, "base": BASE, "rights": RIGHTS,
             "subtitle": f"Concorsi aperti {SU}, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
-            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL},
+            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL, **{k: f"Medici: {v}" for k, v in discipline.LABEL.items()}},
+            "disciplines": list(discipline.LABEL),
             "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "rows": rows}
     tmp = os.path.join(outdir, "feed", "su-misura.json.gz.tmp")
     with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=9) as f:
@@ -414,12 +416,15 @@ def emit_page(outdir, rel, title, description, body, active="", depth=0, extra_h
 
 def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False):
     """<li> rows: short title linking to our call page, then ente, area, posts and deadline.
-    tag: data-r with the call's group keys, for the region filter on profession pages (REGION_FILTER)."""
+    tag: data-r with the call's group keys, for the region filter on profession pages (REGION_FILTER),
+    and data-d with its medical disciplines (discipline.py), for the discipline filter on medici.html."""
     e = html.escape
     lis = []
     for c in calls:
         meta = [ente_short(c, 60), region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
         data = f' data-r="{" ".join(keys_of(c))}"' if tag else ""
+        if tag and c["_disc"]:
+            data += f' data-d="{" ".join(c["_disc"])}"'
         title = f'{short_title(c, 105 - len(c["_note"]))} ({c["_note"]})' if c.get("_note") else short_title(c, 110)
         lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(title)}</a>'
                    f'<small>{e(" · ".join(m for m in meta if m))}</small></li>')
@@ -698,16 +703,19 @@ def write_region_pages(outdir, sets, vsets, when):
 # profilo/<name>.html#<region>: only that region's calls, with the custom feed and calendar for the pair.
 # Without JavaScript the link just shows every region.
 REGION_FILTER = """<script>(function () {
-  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), rows = document.querySelectorAll(".items li");
+  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), disc = JSON.parse(box.dataset.disc || "{}"),
+      rows = document.querySelectorAll(".items li");
   function show() {
-    var r = decodeURIComponent(location.hash.slice(1)), n = 0;
-    if (!names.hasOwnProperty(r)) r = "";
-    rows.forEach(function (li) { var ok = !r || li.dataset.r.split(" ").indexOf(r) >= 0; li.style.display = ok ? "" : "none"; if (ok) n++; });
+    var r = decodeURIComponent(location.hash.slice(1)), n = 0, d = disc.hasOwnProperty(r);
+    if (!d && !names.hasOwnProperty(r)) r = "";
+    rows.forEach(function (li) { var ok = !r || ((d ? li.dataset.d : li.dataset.r) || "").split(" ").indexOf(r) >= 0; li.style.display = ok ? "" : "none"; if (ok) n++; });
+    var sel = document.getElementById("disc");
+    if (sel) sel.value = d ? r : "";
     box.hidden = !r;
     if (!r) return;
-    box.querySelector("b").textContent = names[r];
+    box.querySelector("b").textContent = d ? disc[r] : names[r];
     box.querySelector("span").textContent = n + (n == 1 ? " concorso aperto" : " concorsi aperti");
-    var q = "../feed/su-misura.php?f=" + box.dataset.f + "&r=" + r;
+    var q = "../feed/su-misura.php?f=" + (d ? r : box.dataset.f + "&r=" + r);
     box.querySelector(".feed").href = q;
     box.querySelector(".cal").href = q + "&formato=ics";
   }
@@ -800,12 +808,24 @@ def write_profile_pages(outdir, psets, when):
                 by_region[k] = by_region.get(k, 0) + 1
         spread = " · ".join(f'<a href="#{k}">{e(label_of(k))}</a> {n}' for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
         names = html.escape(json.dumps({k: label_of(k) for k in by_region}, ensure_ascii=False))
+        by_disc, disc_line, disc_attr = {}, "", ""
+        if name == "medici":
+            for c in sel:
+                for d in c["_disc"]:
+                    by_disc[d] = by_disc.get(d, 0) + 1
+            untagged = sum(not c["_disc"] for c in sel)
+            opts = "".join(f'<option value="{d}">{e(discipline.LABEL[d])} ({n})</option>' for d, n in sorted(by_disc.items(), key=lambda x: discipline.LABEL[x[0]]))
+            disc_line = (f'<p class="small" id="discipline"><label for="disc">Per disciplina:</label> <select id="disc" onchange="location.hash = this.value">'
+                         f'<option value="">tutte ({len(sel)})</option>{opts}</select> '
+                         f'Senza una disciplina riconoscibile nel titolo (direzioni di dipartimento o distretto, elenchi per più discipline…): {untagged}, solo nell\'elenco completo. '
+                         '<a href="../info.html#discipline">Come la riconosco</a>.</p>\n')
+            disc_attr = f' data-disc="{html.escape(json.dumps({d: discipline.LABEL[d] for d in by_disc}, ensure_ascii=False))}"'
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>{e(head)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
 <p class="small">Per regione: {spread}.</p>
-<p id="solo" class="lead" hidden data-f="{name}" data-names="{names}">Solo <b></b>: <span></span>.
-<a href="#">Tutte le regioni</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
+{disc_line}<p id="solo" class="lead" hidden data-f="{name}" data-names="{names}"{disc_attr}>Solo <b></b>: <span></span>.
+<a href="#">Mostra tutti</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
 <p class="small">{note}</p>
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
@@ -860,6 +880,7 @@ FIELDS = [  # (column, description) for dati/concorsi-aperti.csv, documented on 
     ("url_inpa", "Scheda ufficiale su inPA: fa fede questa"),
     ("url_pagina", "Pagina del concorso su ossian.cloud"),
     ("sito_ente", "Sito dell'amministrazione, come indicato su inPA"),
+    ("discipline_mediche", "Solo per i medici: discipline dedotte dal titolo (nomi del D.M. 30 gennaio 1998), separate da «|»: una stima, non un dato di inPA; vuoto se non riconosciuta"),
 ]
 
 
@@ -873,6 +894,7 @@ def dataset_row(c):
             "area_inpa": c.get("region") or "", "regioni": "|".join(label_of(k) for k in keys),
             "provincia": c["_prov"] or "", "comune": c["_comune"] or "",
             "professioni": "|".join(profili.LABEL[p] for p in c["_prof"]),
+            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"]),
             "titolo_studio_stimato": "|".join(studio.LABEL[s] for s in c["_studio"]), "posti": c.get("posts") or "",
             "valutazione": c.get("eval") or "", "apertura": c.get("opens") or "",
             "scadenza": c["closes"] if valid_closes(c) else "",
@@ -1148,6 +1170,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
 <li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università, ministeri e gli altri enti non hanno una provincia: la loro sede non si ricava con sicurezza dal nome. Le regole sono nel codice (<code>local.py</code>).</li>
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>).</li>
+<li id="discipline">Per i <b>medici</b> riconosco anche la <b>disciplina</b> (cardiologia, anestesia e rianimazione, pediatria...) dai nomi delle discipline del D.M. 30 gennaio 1998 scritti nel titolo; se il titolo dice «disciplina di …», leggo solo quel tratto, così il nome del reparto non aggiunge discipline sbagliate. Le direzioni di dipartimento o di distretto e gli elenchi per «varie discipline» restano senza disciplina. Ogni disciplina si può filtrare nella <a href="profilo/medici.html#discipline">pagina dei medici</a> e seguire con feed e calendario (per esempio <code>feed/su-misura.php?f=cardiologia</code>). Le regole sono nel codice (<code>discipline.py</code>).</li>
 <li id="titolo-di-studio">Pagine, feed e calendari per <b>titolo di studio</b> (laureati, diplomati, scuola dell'obbligo): inPA non indica il titolo richiesto, quindi lo stimo dal livello del contratto scritto nel titolo o nella descrizione. «Area degli Operatori» o «categoria B» vuol dire scuola dell'obbligo; «Area degli Istruttori», «Assistenti» o «categoria C» diploma; «Area dei Funzionari», «categoria D», dirigenti, medici, infermieri, ricercatori e docenti della secondaria laurea. Un concorso con più profili può stare in più elenchi; se il livello non è scritto, non è in nessuno. Restano fuori di proposito le commissioni d'esame, l'AFAM e gli OSS (serve una qualifica, non un titolo di studio). È una stima: i requisiti veri, compresi i titoli specifici, sono nel bando. Le regole sono nel codice (<code>studio.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore. I concorsi nuovi però arrivano una volta al giorno: leggo l'elenco pubblico dei bandi di inPA (la sua sitemap), che inPA rigenera ogni notte verso le 2. Un bando pubblicato su inPA in giornata compare qui di solito la notte successiva: per le novità dell'ultima ora conta inPA.</li>
 </ul>
@@ -1199,6 +1222,7 @@ def main(outdir):
         c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
         c["_prof"] = profili.profiles_of(c)
         c["_studio"] = studio.levels_of(c)
+        c["_disc"] = discipline.disciplines_of(c) if "medici" in c["_prof"] else []
         regs = regions_of(c)
         c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
         c["_seat"] = not c["_comune"] and len(regs) == 1 and local.seat_of(c.get("ente"), regs[0]) or None
