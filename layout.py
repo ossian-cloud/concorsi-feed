@@ -43,7 +43,7 @@ def og(title, description, extra="", canonical=""):
     if canonical:
         tags += f'\n<meta property="og:url" content="{html.escape(canonical)}">'
     if 'og:image' not in extra:
-        tags += '\n<meta property="og:image" content="https://ossian.cloud/img/bandi-cerca.png">'
+        tags += '\n<meta property="og:image" content="https://ossian.cloud/img/concorsi-home.png">'
     return tags
 
 
