@@ -704,14 +704,16 @@ def write_region_pages(outdir, sets, vsets, when):
 # Without JavaScript the link just shows every region.
 REGION_FILTER = """<script>(function () {
   var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), disc = JSON.parse(box.dataset.disc || "{}"),
-      rows = document.querySelectorAll(".items li");
-  function show() {
+      rows = document.querySelectorAll(".items li"), live = document.createElement("p");
+  live.className = "sr-only"; live.setAttribute("role", "status"); box.parentNode.insertBefore(live, box);
+  function show(e) {
     var r = decodeURIComponent(location.hash.slice(1)), n = 0, d = disc.hasOwnProperty(r);
     if (!d && !names.hasOwnProperty(r)) r = "";
     rows.forEach(function (li) { var ok = !r || ((d ? li.dataset.d : li.dataset.r) || "").split(" ").indexOf(r) >= 0; li.style.display = ok ? "" : "none"; if (ok) n++; });
     var sel = document.getElementById("disc");
     if (sel) sel.value = d ? r : "";
     box.hidden = !r;
+    if (e) live.textContent = (r ? (d ? disc[r] : names[r]) + ": " : "Tutti: ") + n + (n == 1 ? " concorso aperto" : " concorsi aperti");
     if (!r) return;
     box.querySelector("b").textContent = d ? disc[r] : names[r];
     box.querySelector("span").textContent = n + (n == 1 ? " concorso aperto" : " concorsi aperti");
@@ -726,8 +728,10 @@ REGION_FILTER = """<script>(function () {
 
 # nuovi.html#<region>: only that region's new calls; day headings with nothing left are hidden.
 NEW_FILTER = """<script>(function () {
-  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), days = document.querySelectorAll(".day");
-  function show() {
+  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names), days = document.querySelectorAll(".day"),
+      live = document.createElement("p");
+  live.className = "sr-only"; live.setAttribute("role", "status"); box.parentNode.insertBefore(live, box);
+  function show(e) {
     var r = decodeURIComponent(location.hash.slice(1)), n = 0;
     if (!names.hasOwnProperty(r)) r = "";
     days.forEach(function (d) {
@@ -737,6 +741,7 @@ NEW_FILTER = """<script>(function () {
       d.querySelector("h2 small").textContent = "(" + k + ")";
     });
     box.hidden = !r;
+    if (e) live.textContent = (r ? names[r] + ": " : "Tutte le regioni: ") + n + (n == 1 ? " concorso nuovo" : " concorsi nuovi");
     if (!r) return;
     box.querySelector("b").textContent = names[r];
     box.querySelector("span").textContent = n + (n == 1 ? " concorso nuovo" : " concorsi nuovi");
@@ -1104,7 +1109,10 @@ Copia il link che ti interessa e incollalo nella tua app: si aggiornano da soli.
     b.hidden = false;
     b.addEventListener("click", function () {{
       var el = document.getElementById(b.dataset.copy === "cl-url-v" ? "cl-url" : b.dataset.copy);
-      navigator.clipboard.writeText(el.dataset.v || el.value).then(function () {{ b.textContent = "Copiato"; }});
+      navigator.clipboard.writeText(el.dataset.v || el.value).then(function () {{
+        var t = b.textContent; b.textContent = "Copiato"; b.setAttribute("aria-live", "polite");
+        setTimeout(function () {{ b.textContent = t; }}, 3000);
+      }});
     }});
   }});
 }})();
