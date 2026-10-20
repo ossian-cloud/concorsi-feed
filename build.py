@@ -282,7 +282,8 @@ GU_LEAD = (' e nella <a href="info.html#gazzetta">Gazzetta Ufficiale</a>, 4ª se
 GU_INFO = f"""<h2 id="gazzetta">Concorsi dalla Gazzetta Ufficiale</h2>
 <p>Molte amministrazioni, soprattutto aziende sanitarie, ospedali, università ed enti di ricerca, pubblicano i concorsi nella
 <a href="https://www.gazzettaufficiale.it/30giorni/concorsi">Gazzetta Ufficiale, 4ª serie speciale «Concorsi ed esami»</a> e non su inPA.
-In un mio controllo di ottobre 2026, dei 95 concorsi di due numeri della Gazzetta solo 4 erano anche su inPA. Per questo aggiungo anche quelli.</p>
+In un mio controllo di ottobre 2026, dei 95 concorsi di due numeri della Gazzetta solo 4 erano anche su inPA. Per questo aggiungo anche quelli.
+Il conteggio completo, per tipo di ente: <a href="gazzetta-e-inpa.html">quanti concorsi sono solo in Gazzetta e quanti solo su inPA</a>.</p>
 <ul>
 <li>Leggo il sommario di ogni numero (esce il martedì e il venerdì) dalle pagine pubbliche della Gazzetta, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Tengo solo le voci «concorso» e «mobilità» con una scadenza: niente graduatorie, esiti, diari delle prove, ammissioni ai dottorati o sessioni di esami di abilitazione.</li>
 <li>Le <b>riaperture dei termini</b> sono elencate come concorsi, con «Termini riaperti» nel titolo. Il sommario della Gazzetta non dà la loro scadenza: la ricavo dal testo dell'avviso (di solito 30 giorni dalla pubblicazione, spostati al primo giorno non festivo), e la pagina lo dice. Quando la Gazzetta pubblica l'<b>annullamento</b> di un concorso e indica il numero in cui era uscito, tolgo quel concorso dagli elenchi.</li>
@@ -983,7 +984,7 @@ def dataset_ld(n, latest):
 
 
 def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
-    urls = [(canonical(r), None) for r in ["index.html", "nuovi.html", "feed.html", "dati.html", "info.html"] + [f"regione/{k}.html" for k in region_keys]
+    urls = [(canonical(r), None) for r in ["index.html", "nuovi.html", "feed.html", "dati.html", "info.html"] + (["gazzetta-e-inpa.html"] if GU_ON else []) + [f"regione/{k}.html" for k in region_keys]
             + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
@@ -1209,6 +1210,11 @@ Segnalazioni e correzioni: <a href="https://github.com/ossian-cloud/concorsi-fee
 </div>"""
     emit_page(outdir, "info.html", f"Concorsi pubblici ({SRC}): cosa contiene, {'fonti' if GU_ON else 'fonte'} e limiti · ossian.cloud",
               f"Cosa contengono i feed e i calendari dei concorsi pubblici di ossian.cloud, {'le fonti' if GU_ON else 'la fonte'} ({SRC}) e i limiti.", body, "info.html")
+    if GU_ON:  # a dated analysis, written by hand (static/): the numbers don't change with the build
+        body = layout.crumbs([("info.html", "Info"), ("", "Gazzetta Ufficiale e inPA")]) + "\n" + open(os.path.join(HERE, "static", "gazzetta-e-inpa.html"), encoding="utf-8").read()
+        emit_page(outdir, "gazzetta-e-inpa.html", "Concorsi aperti: quanti solo in Gazzetta Ufficiale, quanti solo su inPA (ottobre 2026) · ossian.cloud",
+                  "Conteggio dei concorsi pubblici aperti al 20 ottobre 2026: 17% solo in Gazzetta Ufficiale, 82% solo su inPA, 1% in entrambi; per tipo di ente, con metodo e verifiche.",
+                  body, "info.html")
 
 
 def main(outdir):
