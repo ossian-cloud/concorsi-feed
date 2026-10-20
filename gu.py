@@ -375,10 +375,21 @@ def place_of(ente):
 
 
 STOP = set("DI DEL DELLA DELLE DEI DEGLI DELL E ED IN PER LA LE IL LO GLI A AL ALLA DA CON SU UN UNA UNO".split())
-GENERIC = set("AZIENDA SANITARIA SOCIO TERRITORIALE LOCALE OSPEDALIERA OSPEDALIERO UNIVERSITARIA UNITA ASST ASL ATS "
+GENERIC = set("AZIENDA SANITARIA SOCIO TERRITORIALE LOCALE OSPEDALIERA OSPEDALIERO UNIVERSITARIA UNITA ASST ASL ATS USL ULSS ASP "
               "AUSL AO AOU IRCCS FONDAZIONE ISTITUTO UNIVERSITA STUDI COMUNE PROVINCIA REGIONE ENTE AGENZIA "
               "CONSIGLIO NAZIONALE RICERCHE POLICLINICO SERVIZI REGIONALE PROTEZIONE AMBIENTE CAMERA COMMERCIO INDUSTRIA "
               "ARTIGIANATO AGRICOLTURA SALUTE TUTELA".split())
+
+
+_PLACES = set()
+
+
+def _places():
+    """Single-word municipality and province names (ISTAT), loaded on first use."""
+    import geo
+    if not _PLACES:
+        _PLACES.update(n for n in list(geo._BY_COMUNE) + list(geo._BY_PROV) if " " not in n)
+    return _PLACES
 
 
 def _words(s):
@@ -416,6 +427,9 @@ def same_call(g, c):
         return 0
     ge, ce = _words(g["ente"]) - GENERIC, _words(c["ente"].split("\n")[0]) - GENERIC  # inPA's ente may carry scraped junk after a newline
     if not ge or not ce or len(ge & ce) < max(1, 0.6 * min(len(ge), len(ce))) or (len(ge & ce) < 2 and min(len(ge), len(ce)) > 1):
+        return 0
+    places = _places()
+    if (ge & ce) <= places and (ge - places or ce - places):  # only the town shared: "Policlinico San Matteo di Pavia" is not "ASST di Pavia"
         return 0
     bundle = gap == 0 and re.search(r"\bvari profili\b", g["title"], re.I)  # one GU notice, several inPA calls
     if g.get("posts") and c.get("posts") and g["posts"] != c["posts"] and not bundle:
