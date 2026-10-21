@@ -898,6 +898,49 @@ FIELDS = [  # (column, description) for dati/concorsi-aperti.csv, documented on 
 ]
 
 
+GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls only in the Gazzetta Ufficiale
+    ("id", "Identificativo interno (stabile da un aggiornamento all'altro)"),
+    ("codice_gu", "Codice redazionale dell'avviso nella Gazzetta Ufficiale (per esempio 26E05030)"),
+    ("tipo", "Tipo di avviso secondo la Gazzetta: CONCORSO, MOBILITA', oppure RIAPERTURA se riapre i termini di un concorso"),
+    ("titolo", "Titolo del sommario della Gazzetta (spazi normalizzati, eventuali nomi di persone sostituiti da «[nome omesso]»)"),
+    ("ente", "Amministrazione che bandisce, come nella Gazzetta"),
+    ("sezione_gu", "Sezione del sommario (per esempio ENTI DI RICERCA, AZIENDE SANITARIE LOCALI ED ALTRE ISTITUZIONI SANITARIE)"),
+    ("regioni", "Regioni ricavate dall'ente, separate da «|»; «Nazionale e altre aree» se nessuna"),
+    ("provincia", "Provincia, solo per Comuni, Province e Città metropolitane"),
+    ("comune", "Comune, solo per gli enti locali di cui sopra"),
+    ("professioni", "Professioni dedotte da parole chiave nel titolo, separate da «|»: una stima"),
+    ("titolo_studio_stimato", "Titolo di studio minimo stimato, separati da «|»: una stima; vuoto se non riconosciuto"),
+    ("posti", "Numero di posti, se il sommario lo indica"),
+    ("pubblicazione", "Data del numero della Gazzetta (AAAA-MM-GG)"),
+    ("scadenza", "Scadenza indicata dalla redazione della Gazzetta (AAAA-MM-GG): quella ufficiale, con l'ora, è nel bando"),
+    ("numero_gu", "Numero della 4ª serie speciale (per esempio «n. 72 del 18/09/2026»)"),
+    ("url_gu", "Avviso nella Gazzetta Ufficiale: fa fede questo"),
+    ("url_pagina", "Pagina del concorso su ossian.cloud"),
+    ("discipline_mediche", "Solo per i medici: discipline dedotte dal titolo, separate da «|»: una stima"),
+]
+
+# Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
+CSV_CHANGES = [
+    ("2026-10-21", "Nuovo file <code>concorsi-gazzetta.csv</code> con i concorsi che sono solo nella Gazzetta Ufficiale. <code>concorsi-aperti.csv</code> non cambia."),
+    ("2026-10-17", "Aggiunta in fondo la colonna <code>discipline_mediche</code>."),
+    ("2026-10-15", "Aggiunta la colonna <code>titolo_studio_stimato</code>, dopo <code>professioni</code> (l'unica volta che una colonna è stata inserita in mezzo: non succederà più)."),
+    ("2026-10-14", "Prima pubblicazione."),
+]
+
+
+def gu_dataset_row(c):
+    return {"id": c["id"], "codice_gu": c.get("gu_code") or "", "tipo": c.get("gu_type") or "",
+            "titolo": " ".join(c["title"].split()), "ente": " ".join((c.get("ente") or "").split()),
+            "sezione_gu": c.get("section") or "", "regioni": "|".join(label_of(k) for k in keys_of(c)),
+            "provincia": c["_prov"] or "", "comune": c["_comune"] or "",
+            "professioni": "|".join(profili.LABEL[p] for p in c["_prof"]),
+            "titolo_studio_stimato": "|".join(studio.LABEL[s] for s in c["_studio"]), "posti": c.get("posts") or "",
+            "pubblicazione": (c.get("opens") or "")[:10], "scadenza": c["closes"][:10] if valid_closes(c) else "",
+            "numero_gu": c.get("gu_issue") or "", "url_gu": c.get("gu_url") or "",
+            "url_pagina": f"{BASE}/{page_rel(c)}",
+            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"])}
+
+
 def num(v):
     return "" if v is None else str(int(v)) if v == int(v) else str(v)
 
@@ -920,14 +963,18 @@ def dataset_row(c):
 def write_dataset(outdir, open_, latest, when):
     """dati/concorsi-aperti.csv: every open call, one row each, with the derived fields; dati.html says what's in them.
     inPA has no open dataset of its calls: this is the closest thing, under its CC BY 3.0 licence."""
-    rows = [dataset_row(c) for c in sorted((c for c in open_ if not is_gu(c)), key=lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"]))]
+    by_close = lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"])
+    rows = [dataset_row(c) for c in sorted((c for c in open_ if not is_gu(c)), key=by_close)]
+    gu_rows = [gu_dataset_row(c) for c in sorted((c for c in open_ if is_gu(c)), key=by_close)]
     os.makedirs(os.path.join(outdir, "dati"), exist_ok=True)
-    buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=[k for k, _ in FIELDS])
-    w.writeheader()
-    w.writerows(rows)
+    files = [("concorsi-aperti.csv", FIELDS, rows)] + ([("concorsi-gazzetta.csv", GU_FIELDS, gu_rows)] if GU_ON else [])
     sizes = {}
-    for name, text in [("concorsi-aperti.csv", buf.getvalue())]:
+    for name, fields_, rows_ in files:
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=[k for k, _ in fields_])
+        w.writeheader()
+        w.writerows(rows_)
+        text = buf.getvalue()
         path = os.path.join(outdir, "dati", name)
         with open(path + ".tmp", "w", encoding="utf-8", newline="") as f:
             f.write(text)
@@ -935,6 +982,19 @@ def write_dataset(outdir, open_, latest, when):
         sizes[name] = os.path.getsize(path)
     e = html.escape
     fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in FIELDS)
+    gu_fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in GU_FIELDS)
+    changes = "\n".join(f"<li>{day_} · {t}</li>" for day_, t in CSV_CHANGES)
+    gu_section = f"""
+<h2 id="gazzetta">I concorsi della Gazzetta Ufficiale, in un secondo file</h2>
+<p>Molti concorsi, soprattutto di aziende sanitarie e università, sono pubblicati nella Gazzetta Ufficiale (4ª serie speciale) e non su inPA: {len(gu_rows)} di quelli aperti ora (<a href="gazzetta-e-inpa.html">i numeri</a>).
+Sono in un file a parte, perché ne so meno: solo il sommario della Gazzetta, con una scadenza indicata dalla redazione e senza ora.</p>
+<div class="actions"><a class="pill" href="dati/concorsi-gazzetta.csv" download><span aria-hidden="true">⬇</span> CSV Gazzetta Ufficiale ({sizes["concorsi-gazzetta.csv"] // 1024} kB)</a></div>
+<p class="small">Indirizzo fisso: <code>{BASE}/dati/concorsi-gazzetta.csv</code>. Stesso formato dell'altro file (virgola, UTF-8, intestazione), con colonne in parte diverse. Fonte: Gazzetta Ufficiale della Repubblica Italiana; il testo <b>non è autentico</b> (fa fede solo la Gazzetta) ed è riprodotto <b>gratuitamente</b>, come chiedono le sue condizioni d'uso.
+I concorsi che sono anche su inPA stanno solo nel primo file (il confronto è automatico: qualche doppione può sfuggire).</p>
+<div class="table"><table><thead><tr><th>Campo</th><th>Cosa contiene</th></tr></thead><tbody>
+{gu_fields}
+</tbody></table></div>
+""" if GU_ON else ""
     body = f"""{layout.crumbs([("", "Dati aperti")])}
 <div class="prose">
 <h1>I concorsi aperti su inPA, in un file</h1>
@@ -953,6 +1013,13 @@ Se li riusi cita inPA come fonte; se ti va, anche questa pagina. È un <strong>e
 <div class="table"><table><thead><tr><th>Campo</th><th>Cosa contiene</th></tr></thead><tbody>
 {fields}
 </tbody></table></div>
+{gu_section}
+<h2 id="modifiche">Se lo usi in un programma</h2>
+<p>Gli indirizzi dei file non cambiano. Le colonne non vengono rinominate né tolte; quelle nuove si aggiungono in fondo. Conviene comunque leggere le colonne per nome, dall'intestazione.
+Ogni modifica è annotata qui sotto, con la data. Per domande o se ti serve un campo in più: <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a>.</p>
+<ul class="small">
+{changes}
+</ul>
 
 <h2>Come aprirlo</h2>
 <p>Excel: <b>Dati → Da testo/CSV</b>, scegli il file e la codifica UTF-8 (se lo apri con un doppio clic, con le impostazioni italiane le colonne non si separano).
@@ -1025,7 +1092,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 <div><b>{len(sets) + len(psets) + len(vsets)}</b><span>feed e calendari</span></div>
 </div>
 <div class="actions"><a class="pill" href="calendario/italia.ics"><span aria-hidden="true">📅</span> Tutte le scadenze nel calendario</a>
-<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a><a class="pill" href="dati.html">{"I concorsi di inPA in un file CSV" if GU_ON else "Tutti in un file CSV"}</a></div>
+<a class="pill" href="feed/italia.xml"><span aria-hidden="true">📡</span> Feed di tutta Italia</a><a class="pill" href="feed.html">Per regione o professione</a><a class="pill" href="dati.html">{"Tutti in due file CSV" if GU_ON else "Tutti in un file CSV"}</a></div>
 
 <h2>Per regione</h2>
 <ul class="grid-links">
@@ -1193,7 +1260,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore. I concorsi nuovi però arrivano una volta al giorno: leggo l'elenco pubblico dei bandi di inPA (la sua sitemap), che inPA rigenera ogni notte verso le 2. Un bando pubblicato su inPA in giornata compare qui di solito la notte successiva: per le novità dell'ultima ora conta inPA.</li>
 </ul>
 {GU_INFO if GU_ON else ""}<h2 id="dati">Dati aperti</h2>
-<p>{"I concorsi aperti di inPA (non quelli della Gazzetta Ufficiale) sono anche" if GU_ON else "Tutti i concorsi aperti sono anche"} in un unico file CSV, con regione, provincia e professione: <a href="dati.html">dati aperti</a>.</p>
+<p>{"I concorsi aperti di inPA sono anche in un file CSV (e quelli della Gazzetta Ufficiale in un secondo file)" if GU_ON else "Tutti i concorsi aperti sono anche in un unico file CSV"}, con regione, provincia e professione: <a href="dati.html">dati aperti</a>.</p>
 <h2>Fonte e licenza</h2>
 <p>Fonte: inPA, Portale del reclutamento, Dipartimento della Funzione Pubblica — contenuti in licenza
 <a href="https://creativecommons.org/licenses/by/3.0/it/">CC BY 3.0</a>. Ogni voce cita la fonte e rimanda alla scheda su inPA.{" Per i concorsi della Gazzetta Ufficiale, fonte e condizioni sono <a href='#gazzetta'>più sopra</a>." if GU_ON else ""}</p>
