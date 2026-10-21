@@ -195,8 +195,16 @@ def ente_name(c):
     return titles.name_case(" ".join(c["ente"].split())) if c.get("ente") else ""
 
 
+def ente_brief(c):
+    """titles.short_ente, unless that leaves only a bare acronym ("LIFE - ISTITUTO ... SANTA LUCIA IRCCS")."""
+    if not c.get("ente"):
+        return ""
+    who = titles.short_ente(c["ente"])
+    return ente_name(c) if len(who) < 6 and len(c["ente"]) > 12 else who
+
+
 def ente_short(c, n=40):
-    return titles.cut(titles.short_ente(c["ente"]), n) if c.get("ente") else ""
+    return titles.cut(ente_brief(c), n)
 
 
 def posts_text(c):
@@ -511,7 +519,7 @@ def job_posting(c, url):
 def page_title(c, now, note=""):
     """<title>: the job, the ente when short, the deadline. `note` tells apart calls whose titles would collide."""
     closed = c["_closed"]
-    who = titles.short_ente(c["ente"]) if c.get("ente") else ""
+    who = ente_brief(c)
     who = who if len(who) <= 34 else ""
     expired = valid_closes(c) and c["closes"] < now.strftime("%Y-%m-%dT%H:%M")
     tail = (f": scadenza {day(c['closes'])}" if valid_closes(c) and not closed else

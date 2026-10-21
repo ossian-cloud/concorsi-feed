@@ -134,20 +134,40 @@ def deadline(scad):
         return None
 
 
-POSTS = re.compile(r"\b(?:di|per)\s+(?:n\.\s*)?(\d+|un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|"
-                   r"undici|dodici|quindici|venti|trenta|quaranta|cinquanta|cento)\s+(?:\w+\s+)?posti?\b", re.I)
-WORDS = {"un": 1, "uno": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5, "sei": 6, "sette": 7,
-         "otto": 8, "nove": 9, "dieci": 10, "undici": 11, "dodici": 12, "quindici": 15, "venti": 20,
-         "trenta": 30, "quaranta": 40, "cinquanta": 50, "cento": 100, "quarantacinque": 45, "sessanta": 60}
+POSTS = re.compile(r"\b(?:di|per)\s+(?:n\.\s*)?(\d+|[a-zàéè]+'?)\s+(?:\w+\s+)?post[oi]\b", re.I)
+UNITS = {"un": 1, "uno": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5, "sei": 6, "sette": 7,
+         "otto": 8, "nove": 9, "dieci": 10, "undici": 11, "dodici": 12, "tredici": 13, "quattordici": 14,
+         "quindici": 15, "sedici": 16, "diciassette": 17, "diciotto": 18, "diciannove": 19}
+TENS = {"venti": 20, "trenta": 30, "quaranta": 40, "cinquanta": 50, "sessanta": 60, "settanta": 70,
+        "ottanta": 80, "novanta": 90}
+
+
+def number_word(w):
+    """Italian number words up to 999 ("settantatre'", "ventitré", "centoventi"), else None."""
+    w = w.lower().rstrip("'").replace("é", "e").replace("è", "e")
+    if w in UNITS:
+        return UNITS[w]
+    if w.startswith("cento"):
+        rest = number_word(w[5:]) if len(w) > 5 else 0
+        return None if rest is None else 100 + rest
+    m = re.match(r"(due|tre|quattro|cinque|sei|sette|otto|nove)cento(.*)", w)
+    if m:
+        rest = number_word(m.group(2)) if m.group(2) else 0
+        return None if rest is None else 100 * UNITS[m.group(1)] + rest
+    for t, v in TENS.items():
+        stem = t[:-1]  # "vent" + "uno"/"otto" drops the vowel
+        if w == t:
+            return v
+        for head in (t, stem):
+            if w.startswith(head) and w[len(head):] in UNITS and UNITS[w[len(head):]] < 10 and w[len(head):] not in ("un", "una"):
+                return v + UNITS[w[len(head):]]
+    return None
 
 
 def posts_of(summary):
     """Number of posts when the summary states exactly one count ("copertura di due posti"), else None."""
-    found = {m.group(1).lower() for m in POSTS.finditer(summary)}
-    if len(found) != 1:
-        return None
-    v = found.pop()
-    return int(v) if v.isdigit() else WORDS[v]
+    found = {int(v) if v.isdigit() else number_word(v) for v in (m.group(1) for m in POSTS.finditer(summary))} - {None}
+    return found.pop() if len(found) == 1 else None
 
 
 def record(e):
@@ -201,7 +221,7 @@ def reopen_deadline(body, date):
                   r"(?:decorrent|successiv|dalla)", low)
     if m and re.search(r"pubblicazione[^.]{0,120}gazzetta", low[m.end():m.end() + 220]):
         v = m.group(1) or m.group(2)
-        n = ORDINALS.get(v) or WORDS.get(v) or (int(v) if v.isdigit() else None)
+        n = ORDINALS.get(v) or number_word(v) or (int(v) if v.isdigit() else None)
         if n and 5 <= n <= 90:
             d = issued + dt.timedelta(days=n)
             while _holiday(d):
@@ -447,7 +467,7 @@ def same_call(g, c):
         score = max(score, 0.9)
     if not score and gap == 0:  # same ente, same deadline day, and a summary too generic to compare words
         borse = re.search(r"\b(\w+) borse\b", g["title"], re.I)
-        n = WORDS.get(borse.group(1).lower()) if borse else None
+        n = number_word(borse.group(1)) if borse else None
         if bundle or (n and n == c.get("posts")):
             score = 0.5
     return score
