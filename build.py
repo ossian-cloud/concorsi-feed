@@ -928,6 +928,43 @@ CSV_CHANGES = [
 ]
 
 
+# Frictionless types for dati/datapackage.json; any column not listed is a string.
+FIELD_TYPES = {"posti": "integer", "retribuzione_min": "number", "retribuzione_max": "number"}
+GU_FIELD_TYPES = {"posti": "integer", "pubblicazione": "date", "scadenza": "date"}
+RESOURCES = {  # name -> (title, licence, source)
+    "concorsi-aperti.csv": ("Concorsi aperti su inPA",
+                            {"name": "CC-BY-3.0-IT", "path": "https://creativecommons.org/licenses/by/3.0/it/", "title": "CC BY 3.0 IT"},
+                            {"title": "inPA, Portale del reclutamento (Dipartimento della Funzione Pubblica)", "path": "https://www.inpa.gov.it/"}),
+    "concorsi-gazzetta.csv": ("Concorsi aperti solo nella Gazzetta Ufficiale, 4ª serie speciale", None,
+                              {"title": "Gazzetta Ufficiale della Repubblica Italiana, 4ª serie speciale (testo non autentico, riprodotto gratuitamente)",
+                               "path": "https://www.gazzettaufficiale.it/"}),
+}
+
+
+def write_datapackage(outdir, files, latest):
+    """dati/datapackage.json: a Frictionless Data Package describing the CSVs, so tools can read them with types."""
+    resources = []
+    for name, fields_ in files:
+        title, licence, source = RESOURCES[name]
+        types = GU_FIELD_TYPES if name == "concorsi-gazzetta.csv" else FIELD_TYPES
+        r = {"name": name[:-4], "path": f"{BASE}/dati/{name}", "title": title, "format": "csv", "mediatype": "text/csv",
+             "encoding": "utf-8", "sources": [source],
+             "schema": {"fields": [{"name": k, "type": types.get(k, "string"), "description": d} for k, d in fields_],
+                        "missingValues": [""]}}
+        if licence:
+            r["licenses"] = [licence]
+        resources.append(r)
+    pkg = {"name": "ossian-concorsi", "title": "Concorsi pubblici aperti (inPA e Gazzetta Ufficiale)",
+           "description": "Estratto non ufficiale, aggiornato ogni 4 ore: fanno fede inPA e la Gazzetta Ufficiale. Campi e limiti: " + f"{BASE}/dati.html",
+           "homepage": f"{BASE}/dati.html", "version": CSV_CHANGES[0][0], "created": latest,
+           "contributors": [{"title": "Ossian (agente AI)", "path": "https://ossian.cloud/", "role": "author"}],
+           "resources": resources}
+    path = os.path.join(outdir, "dati", "datapackage.json")
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(pkg, f, ensure_ascii=False, indent=1)
+    os.replace(path + ".tmp", path)
+
+
 def gu_dataset_row(c):
     return {"id": c["id"], "codice_gu": c.get("gu_code") or "", "tipo": c.get("gu_type") or "",
             "titolo": " ".join(c["title"].split()), "ente": " ".join((c.get("ente") or "").split()),
@@ -980,6 +1017,7 @@ def write_dataset(outdir, open_, latest, when):
             f.write(text)
         os.replace(path + ".tmp", path)
         sizes[name] = os.path.getsize(path)
+    write_datapackage(outdir, [(name, fields_) for name, fields_, _ in files], latest)
     e = html.escape
     fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in FIELDS)
     gu_fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in GU_FIELDS)
@@ -1016,6 +1054,7 @@ Se li riusi cita inPA come fonte; se ti va, anche questa pagina. È un <strong>e
 {gu_section}
 <h2 id="modifiche">Se lo usi in un programma</h2>
 <p>Gli indirizzi dei file non cambiano. Le colonne non vengono rinominate né tolte; quelle nuove si aggiungono in fondo. Conviene comunque leggere le colonne per nome, dall'intestazione.
+Nomi, tipi e descrizioni delle colonne sono anche in <a href="dati/datapackage.json"><code>datapackage.json</code></a> (formato <a href="https://datapackage.org/">Frictionless Data Package</a>).
 Ogni modifica è annotata qui sotto, con la data. Per domande o se ti serve un campo in più: <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a>.</p>
 <ul class="small">
 {changes}
