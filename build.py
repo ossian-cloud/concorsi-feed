@@ -249,6 +249,35 @@ def posted(c):
 # notices posted as if they were calls: "Revoca concorso pubblico per n. 6 posti di Dirigente Psicologo" (ASP Ragusa,
 # on inPA open until 2027). No page, no listing.
 NOT_A_CALL = re.compile(r"^\W*(?:avviso di |comunicazione di |provvedimento di )?(?:revoca|annullamento|sospensione)\b", re.I)
+# notices about a procedure already under way, mostly from Uffici Scolastici Regionali: "AVVISO APPROVAZIONE GRADUATORIA
+# DI MERITO", "Calendario Prove Orali", "AVVISO CONVOCAZIONE PROVA SCRITTA". Nobody can apply to them; no page, no listing
+# (the Gazzetta side already skips graduatorie and diari). Interpelli and calls that create a graduatoria stay.
+# Audited 2026-10-24 on all 3,729 stored calls: 127 matches, all such notices.
+NOTICE_ONLY = re.compile(r"""
+ ^(?!.*(?:interpell|manifestazion\w*\s+d.\s*interesse|utilizz|attingere|\bfinalizzat\w+\s+(?:alla|all.)\s+(?:formazione|costituzione|formulazione)))
+ (?:.*?\b(?:
+    (?:approvazione|pubblicazione|ripubblicazione|integrazione|riformulazione|rettifica|nuova\s+formulazione)
+      \W+(?:(?:della|delle|di|del|dei|nuova|nuove|ulteriore|formulazione|integrazione|integrata|integrate|rettifica|rettificata|definitive|definitiva)\W+){0,3}
+      (?:graduatori\w+|elenc\w+\W+(?:degli\W+)?idone\w+|GM\b)
+  | scorrimento\W+(?:della\W+)?graduatori\w+\W+di\W+merito
+  | (?:calendario|diario|convocazion\w+)\W+(?:\w+\W+){0,8}?prov[ae]\b
+  | avviso\W+(?:integrativo\W+(?:\w+\W+){0,4}?)?prov[ae]\b
+  | (?:scorrimento|integrazione)\W+GM\d
+  | esit[oi]\W+(?:della\W+|delle\W+|dei\W+)?(?:prov|selezion|concors|valutazion|colloqui)\w*
+  | elenc\w+\W+(?:dei\W+)?(?:candidat\w+\W+)?(?:ammess|non\s+ammess|esclus)\w*
+  | prove\W+concorsuali\W*$
+ ))
+""", re.I | re.X | re.S)
+# USR pages titled only "D.D.G. 2939/2025 – Concorso secondaria – Classe di concorso A041": the description says
+# "Si pubblica l'Avviso … relativo alle prove orali". Only for USR: elsewhere "Si allega …" also opens real calls.
+USR = re.compile(r"uffici?o scolastico regionale", re.I)
+NOTICE_DESC = re.compile(r"\bSi\s+(?:pubblica(?:no)?|allega(?:no)?)\b")
+
+
+def notice_only(c):
+    if NOTICE_ONLY.search(" ".join(c["title"].split())):
+        return True
+    return bool(USR.search(c.get("ente") or "") and NOTICE_DESC.search(c.get("desc") or ""))
 
 
 def classify(calls, now):
@@ -258,7 +287,7 @@ def classify(calls, now):
     cut = (now - dt.timedelta(days=GRACE_DAYS)).strftime("%Y-%m-%d")
     open_, kept = [], []
     for c in calls.values():
-        if NOT_A_CALL.search(c["title"]):
+        if NOT_A_CALL.search(c["title"]) or notice_only(c):
             continue
         end = c["closes"][:10] if valid_closes(c) else None
         if end and end < cut:
@@ -921,6 +950,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-10-24", "Tolte circa 110 righe che non erano bandi ma avvisi su procedure già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, quasi tutte degli Uffici Scolastici Regionali). Le colonne non cambiano."),
     ("2026-10-21", "Nuovo file <code>concorsi-gazzetta.csv</code> con i concorsi che sono solo nella Gazzetta Ufficiale. <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-10-17", "Aggiunta in fondo la colonna <code>discipline_mediche</code>."),
     ("2026-10-15", "Aggiunta la colonna <code>titolo_studio_stimato</code>, dopo <code>professioni</code> (l'unica volta che una colonna è stata inserita in mezzo: non succederà più)."),
@@ -1290,6 +1320,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <h2>Cosa contiene</h2>
 <ul>
 <li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA{" (e quelli della Gazzetta Ufficiale: <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
+<li>Non elenco le voci di inPA che non sono bandi ma avvisi su una procedura già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, esiti) né le revoche: a quelle non ci si può candidare.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
 <li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università, ministeri e gli altri enti non hanno una provincia: la loro sede non si ricava con sicurezza dal nome. Le regole sono nel codice (<code>local.py</code>).</li>
