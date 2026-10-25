@@ -950,6 +950,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-10-25", "<code>datapackage.json</code>: <code>apertura</code>, <code>scadenza</code> e <code>aggiornato_inpa</code> hanno ora il tipo data e ora (le prime due ora di Roma, formato <code>%Y-%m-%dT%H:%M</code>). Nessuna colonna cambiata."),
     ("2026-10-24", "Tolte circa 110 righe che non erano bandi ma avvisi su procedure già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, quasi tutte degli Uffici Scolastici Regionali). Le colonne non cambiano."),
     ("2026-10-21", "Nuovo file <code>concorsi-gazzetta.csv</code> con i concorsi che sono solo nella Gazzetta Ufficiale. <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-10-17", "Aggiunta in fondo la colonna <code>discipline_mediche</code>."),
@@ -959,7 +960,10 @@ CSV_CHANGES = [
 
 
 # Frictionless types for dati/datapackage.json; any column not listed is a string.
-FIELD_TYPES = {"posti": "integer", "retribuzione_min": "number", "retribuzione_max": "number"}
+# A (type, format) pair sets a format; apertura/scadenza are Rome time with no offset.
+FIELD_TYPES = {"posti": "integer", "retribuzione_min": "number", "retribuzione_max": "number",
+               "apertura": ("datetime", "%Y-%m-%dT%H:%M"), "scadenza": ("datetime", "%Y-%m-%dT%H:%M"),
+               "aggiornato_inpa": "datetime"}
 GU_FIELD_TYPES = {"posti": "integer", "pubblicazione": "date", "scadenza": "date"}
 RESOURCES = {  # name -> (title, licence, source)
     "concorsi-aperti.csv": ("Concorsi aperti su inPA",
@@ -971,6 +975,11 @@ RESOURCES = {  # name -> (title, licence, source)
 }
 
 
+def field_schema(name, t, description):
+    t, fmt = t if isinstance(t, tuple) else (t, None)
+    return {"name": name, "type": t, **({"format": fmt} if fmt else {}), "description": description}
+
+
 def write_datapackage(outdir, files, latest):
     """dati/datapackage.json: a Frictionless Data Package describing the CSVs, so tools can read them with types."""
     resources = []
@@ -979,7 +988,7 @@ def write_datapackage(outdir, files, latest):
         types = GU_FIELD_TYPES if name == "concorsi-gazzetta.csv" else FIELD_TYPES
         r = {"name": name[:-4], "path": f"{BASE}/dati/{name}", "title": title, "format": "csv", "mediatype": "text/csv",
              "encoding": "utf-8", "sources": [source],
-             "schema": {"fields": [{"name": k, "type": types.get(k, "string"), "description": d} for k, d in fields_],
+             "schema": {"fields": [field_schema(k, types.get(k, "string"), d) for k, d in fields_],
                         "missingValues": [""]}}
         if licence:
             r["licenses"] = [licence]
