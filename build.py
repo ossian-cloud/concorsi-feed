@@ -545,8 +545,16 @@ def job_posting(c, url):
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
 
 
+# <title> only (lists and feeds keep them): the default contract, and "disciplina di" in front of a medical discipline
+TITLE_FILLER = re.compile(r",?\s*[–-]?\s*\ba tempo (?:pieno )?(?:ed? )?indeterminato(?:,? (?:e |ed )?(?:a tempo )?pieno)?\b", re.I)
+TITLE_DISCIPLINE = re.compile(r",?\s*[–-]?\s*\b(?:(?:per|nella|della|in) (?:la )?)?disciplina\b:?\s*(?:di\s+|in\s+)?", re.I)
+# one post: the count is in the description; plural counts stay
+TITLE_ONE_POST = re.compile(r"(?<=: )(?:n\.\s?1|un|uno|una|1)\s+(?:\(uno\)\s+)?posto\s+(?:(?:nel|con) (?:il )?profilo(?: professionale)? )?(?:di|da)\s+", re.I)
+
+
 def page_title(c, now, note=""):
-    """<title>: the job, the ente when short, the deadline. `note` tells apart calls whose titles would collide."""
+    """<title>: the job first (Google shows about 60 characters), the ente when there is room, the deadline.
+    `note` tells apart calls whose titles would collide."""
     closed = c["_closed"]
     who = ente_brief(c)
     who = who if len(who) <= 34 else ""
@@ -554,12 +562,14 @@ def page_title(c, now, note=""):
     tail = (f": scadenza {day(c['closes'])}" if valid_closes(c) and not closed else
             f": chiuso il {day(c['closes'])}" if expired else ": non più su inPA" if closed else "")
     note = f" ({note})" if note else ""
-    room = max(24, min(60, max(36, 90 - len(tail) - 3 - len(who))) - len(note))  # the job keeps some room
-    title = short_title(c, 300)
+    title = TITLE_DISCIPLINE.sub(" di ", TITLE_FILLER.sub("", TITLE_ONE_POST.sub("", short_title(c, 300)))).replace(" di di ", " di ").strip(" ,")
     if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
         rest = title[len(who):].lstrip(" -–—:,._")
         title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
-    return titles.cut(title, room if who else max(24, 90 - len(tail) - len(note))) + note + (f" - {who}" if who else "") + tail
+    title = titles.cut(title, max(36, 64 - len(note)))
+    if len(title) + len(note) + len(who) > 84:  # the ente is in the description and the h1 anyway
+        who = ""
+    return title + note + (f" - {who}" if who else "") + tail
 
 
 NOTE_TAIL = re.compile(r"(?:\s+(?:area|profilo|e|ed|di|da|a|il|la|per|presso|con|in|del|della|dello|dei|degli|delle)|[\s,.;:–—-]+)+$", re.I)
