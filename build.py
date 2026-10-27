@@ -437,6 +437,29 @@ def custom(f=None, r=None, cal=False):
     return f"feed/su-misura.php?{q}"
 
 
+def write_app_data(outdir, open_, latest):
+    """app/v1.json: every open call in a compact form for the Android app, which filters and notifies on the phone.
+    Keys are short on purpose (served gzipped); the app knows them. Add keys freely, never change one's meaning."""
+    rows = []
+    for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
+        rows.append({"id": c["id"], "t": short_title(c, 110), "tt": " ".join(c["title"].split()),
+                     "e": " ".join((c.get("ente") or "").split()), "r": keys_of(c),
+                     "p": slug(c["_prov"]) if c["_prov"] else "", "c": c["_comune"] or "",
+                     "f": c["_prof"] + c["_studio"] + c["_disc"], "n": c.get("posts") or None,
+                     "o": c.get("opens") or "", "s": c["closes"] if valid_closes(c) else "",
+                     "m": c["lastmod"], "u": page_rel(c),
+                     "x": c.get("gu_url") if is_gu(c) else INPA_PAGE.format(c["id"])})
+    data = {"v": 1, "updated": latest, "base": BASE + "/", "rights": RIGHTS,
+            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]},
+            "profiles": {**profili.LABEL, **studio.LABEL, **{k: f"Medici: {v}" for k, v in discipline.LABEL.items()}},
+            "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "calls": rows}
+    os.makedirs(os.path.join(outdir, "app"), exist_ok=True)
+    path = os.path.join(outdir, "app", "v1.json")
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(path + ".tmp", path)
+
+
 def webcal(path):
     return f'{BASE.replace("https:", "webcal:")}/{path}'
 
@@ -1418,6 +1441,7 @@ def main(outdir):
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
     sets, psets, vsets = write_feeds(outdir, open_, latest)
     write_custom(outdir, open_, latest)
+    write_app_data(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
     write_dataset(outdir, open_, latest, when)
     region_keys = write_region_pages(outdir, sets, vsets, when)
