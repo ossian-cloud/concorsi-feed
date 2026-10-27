@@ -437,12 +437,20 @@ def custom(f=None, r=None, cal=False):
     return f"feed/su-misura.php?{q}"
 
 
+def app_job(c):
+    """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
+    w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
+    m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
+    return (m.group(0) if m else ""), (what.role(w) or "")
+
+
 def write_app_data(outdir, open_, latest):
     """app/v1.json: every open call in a compact form for the Android app, which filters and notifies on the phone.
     Keys are short on purpose (served gzipped); the app knows them. Add keys freely, never change one's meaning."""
     rows = []
     for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
-        rows.append({"id": c["id"], "t": short_title(c, 110), "tt": " ".join(c["title"].split()),
+        kind, job = app_job(c)
+        rows.append({"id": c["id"], "t": short_title(c, 110), "k": kind, "w": job, "tt": " ".join(c["title"].split()),
                      "e": " ".join((c.get("ente") or "").split()), "r": keys_of(c),
                      "p": slug(c["_prov"]) if c["_prov"] else "", "c": c["_comune"] or "",
                      "f": c["_prof"] + c["_studio"] + c["_disc"], "n": c.get("posts") or None,
