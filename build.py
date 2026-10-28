@@ -441,7 +441,7 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (what.role(w) or "")
+    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or "")
 
 
 def write_app_data(outdir, open_, latest):

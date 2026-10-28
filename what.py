@@ -232,3 +232,36 @@ def role(t):
             if job:
                 return job
     return None
+
+
+# For the app's card only (not JobPosting): calls with no job noun but a clear subject, matched on the full title.
+OTHER_JOBS = [(re.compile(p, re.I), h) for p, h in [
+    (r"\b(?:incaric(?:o|hi)|incar\.)\s+(?:individual[ei]\s+)?post[- ]?doc\b", "Incarico post-doc"),
+    (r"\b(?:incaric(?:o|hi)|incar\.)\s+(?:individual[ei]\s+)?di\s+ricerca\b", "Incarico di ricerca"),
+    (r"\bassegn[oi]\s+(?:annual[ei]\s+)?(?:per lo svolgimento\s+)?di\s+(?:attivit[àa]\s+di\s+)?ricerca\b", "Assegno di ricerca"),
+    (r"\bbors[ae]\s+di\s+ricerca\b", "Borsa di ricerca"),
+    (r"\bbors[ae]\s+di\s+studio\b", "Borsa di studio"),
+    (r"\bdottorat[oi]\s+di\s+ricerca\b", "Dottorato di ricerca"),
+    (r"\borganismo indipendente di valutazione\b|\bO\.?I\.?V\.?\b", "Componente dell’OIV"),
+    (r"\bcommission[ei] esaminatric[ei]\b", "Componente di commissione esaminatrice"),
+]]
+SC = re.compile(r"\b(?:direttore|direzione)\s+(?:della\s+|di\s+|dell['’]\s*)?(?:struttura (?:operativa )?complessa|s\.?\s?o?\.?\s?c\.|u\.?\s?o\.?\s?c\.?)\s*"
+                r"(?:(?:della|dell['’]|di)\s*(?:u\.?o\.?c\.?|s\.?c\.?)\s*)?(?:[“\"«]\s*)?", re.I)
+# Where the unit's name surely ends; anything else ("Area tecnica, riabilitativa...", "Radiologia ... per immagini") keeps the bare headline.
+SC_END = re.compile(r"\s+[-–—]\s|\.\s*$|[;:]|,\s+disciplin|\s+(?:del|della|dell['’]|dei|presso|afferente|nell['’]|nel)\s+"
+                    r"(?:P\.\s?O\.|presidi|ospedal|ASL|A\.S\.|Azienda|Dipartiment|distrett|stabiliment)|\s*$", re.I)
+
+
+def other_job(full):
+    """A headline for calls role() can't name: "Borsa di ricerca", "Direttore di struttura complessa: Cardiologia"; or None."""
+    m = SC.search(full)
+    if m:
+        rest = full[m.end():]
+        e = SC_END.search(rest)
+        unit = rest[:e.start()].strip() if e else ""
+        if not (3 <= len(unit) <= 45) or re.search(r"[(),]|\b(?:per|struttura)\b", unit, re.I) or re.match(r"(?:di|del|della|per|a|in|e)\b", unit, re.I):
+            return "Direttore di struttura complessa"
+        if unit.isupper() and len(unit) > 5 and "." not in unit:
+            unit = unit.capitalize()
+        return "Direttore di struttura complessa: " + unit[:1].upper() + unit[1:]
+    return next((h for rx, h in OTHER_JOBS if rx.search(full)), None)
