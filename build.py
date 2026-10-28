@@ -700,6 +700,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 <p class="lead">{e(ente_name(c))}{" · " if c.get("ente") else ""}{e(region_text(c))}{"" if closed or not valid_closes(c) else f" · scadenza <b>{day(c['closes'])}</b>"}</p>
 {status}
 <div class="cta">{"".join(buttons)}</div>
+{'<p class="small">Per accedere a inPA servono SPID, CIE, CNS o eIDAS.</p>' if not closed and not is_gu(c) else ""}
 <div class="table"><table class="facts"><tbody>
 {facts}
 </tbody></table></div>
