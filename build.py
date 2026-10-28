@@ -631,7 +631,7 @@ def title_notes(calls, now):
     return notes
 
 
-def call_page(c, today, now, region_pages, profile_pages, province_pages, note=""):
+def call_page(c, today, now, region_pages, profile_pages, province_pages, note="", near=()):
     """Full HTML of one call page."""
     e = html.escape
     closed = c["_closed"]
@@ -694,6 +694,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
         p = c["_prof"][0]
         follow.append(f'<a class="pill" href="../{e(custom(p, keys[0]))}"><span aria-hidden="true">📡</span> Feed: {e(profili.LABEL[p].lower())}, {e(label_of(keys[0]))}</a>')
     follow.append('<a class="pill" href="../">Tutti i concorsi aperti</a>')
+    near_html = "".join(f"<h3>{e(h)}</h3>\n{items_html(sel, '../')}\n" for h, sel in near)
     crumb = ([(f"regione/{keys[0]}.html", label_of(keys[0]))] if keys[0] in region_pages else []) + [("", short(short_title(c), 60))]
     body = f"""{layout.crumbs(crumb, 1)}
 <h1 class="long">{e(short(full_title, 400))}</h1>
@@ -705,7 +706,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 {facts}
 </tbody></table></div>
 {description}{attachments}<h2>Altri concorsi</h2>
-<div class="actions">{"".join(follow)}</div>
+{near_html}<div class="actions">{"".join(follow)}</div>
 <p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. {GU_PAGE_NOTE if is_gu(c) else "Fa fede la scheda su inPA, a cui ogni voce rimanda."}</p>"""
     title = page_title(c, now, note)
     meta = [posts_text(c), ente_short(c, 60), region_text(c), "scadenza " + deadline_short(c) if valid_closes(c) else None,
@@ -719,12 +720,51 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     return layout.page(title, desc, body, "", 1, extra, "", *source_of(c), url)
 
 
-def write_call_pages(outdir, kept, today, now, region_pages, profile_pages, province_pages):
+NEAR_MAX = 6  # open calls listed on each call page, for visitors who arrive from a search for work in one town
+
+
+def near_index(open_):
+    """{("p", province) | ("s", city) | ("r", group key): open calls} for nearby(); open_ comes sorted by deadline."""
+    idx = {}
+    for c in open_:
+        if c["_prov"]:
+            idx.setdefault(("p", c["_prov"]), []).append(c)
+        for city in {c["_comune"], c["_seat"]} - {None}:
+            idx.setdefault(("s", city), []).append(c)
+        for k in keys_of(c)[:1]:
+            idx.setdefault(("r", k), []).append(c)
+    for k, v in idx.items():
+        if k[0] == "r":  # a whole region: the newest calls, not the hundreds closing first
+            v.sort(key=lambda c: (c.get("opens") or "", c["id"]), reverse=True)
+    return idx
+
+
+def nearby(c, idx):
+    """[(heading, calls)] of other open calls near c: in its city (an ente named after it) or, for a local
+    authority, its province; then the newest in its region, up to NEAR_MAX in all. Each list says what it is."""
+    out, seen = [], {c["id"]}
+    def take(key, heading):
+        sel = [o for o in idx.get(key, []) if o["id"] not in seen][:NEAR_MAX - len(seen) + 1]
+        seen.update(o["id"] for o in sel)
+        if sel:
+            out.append((heading, sel))
+    city = c["_comune"] or c["_seat"]
+    if city:
+        take(("s", city), f"Concorsi aperti a {city}")
+    if c["_prov"]:
+        take(("p", c["_prov"]), f"Concorsi aperti di enti locali in provincia di {c['_prov']}")
+    k = keys_of(c)[0]
+    take(("r", k), f"I più recenti in {label_of(k)}" if k != NAZ else f"I più recenti: {label_of(k)}")
+    return out
+
+
+def write_call_pages(outdir, kept, open_, today, now, region_pages, profile_pages, province_pages):
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
+    idx = near_index(open_)
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""))
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""), nearby(c, idx))
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -1456,7 +1496,7 @@ def main(outdir):
     region_keys = write_region_pages(outdir, sets, vsets, when)
     profile_keys = write_profile_pages(outdir, psets, when)
     province_keys = write_province_pages(outdir, vsets, when)
-    indexable = write_call_pages(outdir, kept, today, now, set(region_keys), set(profile_keys), set(province_keys))
+    indexable = write_call_pages(outdir, kept, open_, today, now, set(region_keys), set(profile_keys), set(province_keys))
     write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today)
     write_new_page(outdir, open_, when, today)
     write_sitemap(outdir, region_keys, profile_keys, province_keys, indexable)
