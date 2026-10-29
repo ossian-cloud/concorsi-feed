@@ -441,7 +441,23 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or "")
+    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c))
+
+
+DESC_TAIL = re.compile(r"(?:\s+|-)(?:[PF]\.T\.?|C\.C\.N\.L\.?|liv\b.*|area\b.*|cat\b.*|codice\b.*)$", re.I)
+
+
+def desc_job(c):
+    """The job named in the call's description, for titles that are only a code or an ente ("BANDO CNR N. 367.641 TEC UPE",
+    "COMUNE DI NOVE"); "" when unsure. role() only: other_job() on a description finds requirements ("dottorato di ricerca")."""
+    desc = " ".join((c.get("desc") or "").split("\n", 1)[-1].split())
+    if not desc or desc == " ".join(c["title"].split()):
+        return ""
+    j = DESC_TAIL.sub("", what.role(what.what(titles.sentence_case(desc[:600]), c.get("ente"))) or "").strip(" -")
+    first = j.split(" ")[0].lower() if j else ""
+    if not what.STARTS.match(j) or re.search(r"[()]", j) or re.search(r"(?:ia|che)$", first) or len(j) < 4:
+        return ""  # "Statistiche assegnate…", "Ingegneria civile…": a subject, not a job
+    return j
 
 
 def write_app_data(outdir, open_, latest):
