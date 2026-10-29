@@ -116,7 +116,7 @@ def regions_of(c):
     padded = f"-{slug(c.get('region') or '')}-"
     found = {r for s, r in REGION_BY_SLUG.items() if f"-{s}-" in padded}
     found |= {r for a, r in ALIASES.items() if f"-{a}-" in padded}
-    return sorted(found)
+    return sorted(found) or ([c["_ente_region"]] if c.get("_ente_region") else [])
 
 
 def keys_of(c):
@@ -134,6 +134,8 @@ def prov_label(key, vsets):
 
 
 def region_text(c):
+    if c.get("_ente_region"):  # inPA says "Nazionale" for a Comune's call
+        return f"{c['_ente_region']} (su inPA: {c.get('region') or 'area non indicata'})"
     return c.get("region") or "Area non indicata"
 
 
@@ -1564,6 +1566,9 @@ def main(outdir):
         regs = regions_of(c)
         c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
         c["_seat"] = not c["_comune"] and len(regs) == 1 and local.seat_of(c.get("ente"), regs[0]) or None
+        if not regs and c["_prov"]:  # "Comune di Belvedere Marittimo", area "Nazionale": the comune's region (unique names only)
+            r = local.geo.place(c["_comune"] or "", "" if c["_comune"] else c["_prov"])[0]
+            c["_ente_region"] = next((v for k, v in REGION_BY_SLUG.items() if r and k == slug(r)), None)
         for a in c.get("attachments") or []:
             a["title"] = names.redact(a.get("title"))
     # placeholders left by an administration, not calls anyone can apply to
