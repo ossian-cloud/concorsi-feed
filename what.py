@@ -163,7 +163,7 @@ TAIL = re.compile(r"(?:\s+(?:e|ed|di|del|della|dei|nel|nei|per|con|in|a|da|o)|[\
 ACRONYMS = {"AFAM", "ASL", "ASP", "ASST", "OSS", "ICT", "CED", "PNRR", "ATA", "SUAP", "URP", "ZTL"}
 
 
-LIST_ONLY = re.compile(r"\b(?:graduatori[ae]|elenc[ohi]|alb[oi]|idone[io]|manifestazione|interesse|progressione|stabilizzazione|aggiornamento|categorie)\b", re.I)  # not a post
+LIST_ONLY = re.compile(r"\b(?:graduatori[ae]|elenc[ohi]|alb[oi]|idone[io]|manifestazione|interesse|progressione|stabilizzazione|aggiornamento|categorie(?! protette))\b", re.I)  # not a post ("categorie protette" is a reserve)
 COUNTISH = re.compile(r"\b(?:posti?|posizion[ei]|unit[aà]|figur[ae]|incarich[oi]|collaborazion[ei]|risors[ae]|person[ae])\b", re.I)
 PROFILO = re.compile(r"\bprofilo(?:\s+professionale)?(?:\s+di)?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)
 STARTS = re.compile(r"(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)  # the title opens with the job itself
@@ -214,6 +214,7 @@ FB_STARTS = [re.compile(p, re.I) for p in [
     r"^(?:avviso|selezione|concorso|bando)(?: pubblico)?\s+(?=" + JOB_NOUN.pattern + ")",  # "Concorso istruttore amministrativo contabile"
     r"^[^–—:,]{3,80}\s[–—]\s+(?:(?:avviso|selezione|concorso|bando)(?: pubblico)?\s+)?(?=" + JOB_NOUN.pattern + ")",  # "Comune di Falconara Marittima – funzionario tecnico"
     r"\btuel\s+(?:[–—-]\s+)?(?=" + JOB_NOUN.pattern + ")",  # "Selezione ex art. 110 comma 1 TUEL funzionario tecnico"
+    r"\b(?:reclutamento|assunzione|copertura)\s+di\s+(?:n\.?\s*\d+\s+|un[oa]?\s+|\d+\s+)?(?=[“\"«]" + JOB_NOUN.pattern + ")",  # "per il reclutamento di un “Ricercatore” III Liv."
 ]]
 
 
