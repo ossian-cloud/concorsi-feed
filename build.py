@@ -931,7 +931,7 @@ def write_profile_pages(outdir, psets, when, pair_keys=()):
             continue
         name = key[len("profilo-"):]
         level = name in studio.LABEL
-        head = f"Concorsi pubblici aperti {studio.PHRASE[name]}" if level else f"Concorsi pubblici aperti: {label}"
+        head = f"{PAIR_HEAD[name]} in tutta Italia"
         also = ' Chi ha il diploma può partecipare anche ai concorsi <a href="scuola-obbligo.html">con la scuola dell\'obbligo</a>.' if name == "diplomati" else ""
         note = (f'{LEVEL_NOTE}{also} <a href="../info.html#titolo-di-studio">Come lo stimo</a>.'
                 if level else 'inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. Per non perderne, segui anche la tua regione. <a href="../info.html#professioni">Come la riconosco</a>.')
@@ -965,7 +965,7 @@ def write_profile_pages(outdir, psets, when, pair_keys=()):
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
 {items_html(sel, "../", tag=True)}
 {REGION_FILTER}"""
-        emit_page(outdir, f"profilo/{name}.html", f"{head} ({len(sel)})",
+        emit_page(outdir, f"profilo/{name}.html", f"{PAIR_HEAD[name]}: {plural(len(sel), 'aperto', 'aperti')} in tutta Italia",
                   f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} {studio.PHRASE[name] if level else 'per ' + label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
