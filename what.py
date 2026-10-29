@@ -211,6 +211,9 @@ FB_STARTS = [re.compile(p, re.I) for p in [
     r"\bincarich[io]\b.{0,150}?\b(?:s\.?m\.?i\.?|ss\.?\s?mm\.?\s?ii\.?|comma \d+),?\s+(?:di|quale)\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "incarico ... ex art. 110, comma 1, di educatore"
     r"\bn\.?\s*\d+\s*(?=[“\"«]" + JOB_NOUN.pattern + ")",  # "N.2 “agenti di polizia locale”"
     r"^(?:avviso|selezione|concorso|bando)(?: pubblico)? per (?=" + JOB_NOUN.pattern + ")",  # "Avviso per fisioterapista"
+    r"^(?:avviso|selezione|concorso|bando)(?: pubblico)?\s+(?=" + JOB_NOUN.pattern + ")",  # "Concorso istruttore amministrativo contabile"
+    r"^[^–—:,]{3,80}\s[–—]\s+(?:(?:avviso|selezione|concorso|bando)(?: pubblico)?\s+)?(?=" + JOB_NOUN.pattern + ")",  # "Comune di Falconara Marittima – funzionario tecnico"
+    r"\btuel\s+(?:[–—-]\s+)?(?=" + JOB_NOUN.pattern + ")",  # "Selezione ex art. 110 comma 1 TUEL funzionario tecnico"
 ]]
 
 
