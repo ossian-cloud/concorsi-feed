@@ -451,8 +451,10 @@ def desc_job(c):
     """The job named in the call's description, for titles that are only a code or an ente ("BANDO CNR N. 367.641 TEC UPE",
     "COMUNE DI NOVE"); "" when unsure. role() only: other_job() on a description finds requirements ("dottorato di ricerca")."""
     desc = " ".join((c.get("desc") or "").split("\n", 1)[-1].split())
-    if not desc or desc == " ".join(c["title"].split()):
-        return ""
+    if not desc or desc == " ".join(c["title"].split()) or what.LIST_ONLY.search(c["title"]) or re.search(r"commission", c["title"], re.I):
+        return ""  # like role(): a list, a progression or a commission seat is not the job the description names
+    m = what.POSTS.search(desc[:1000])  # skip the legal preamble: "Selezione ai sensi dell'art. 8 del ... di una unità ... di ricercatore"
+    desc = desc[m.start():] if m and m.start() > 150 else desc
     j = DESC_TAIL.sub("", what.role(what.what(titles.sentence_case(desc[:600]), c.get("ente"))) or "").strip(" -")
     first = j.split(" ")[0].lower() if j else ""
     if not what.STARTS.match(j) or re.search(r"[()]", j) or re.search(r"(?:ia|che)$", first) or len(j) < 4:
