@@ -571,7 +571,7 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    job = what.role(what.what(titles.sentence_case(full), c.get("ente")))
+    job = what.role(what.what(titles.sentence_case(full), c.get("ente"))) or desc_job(c)
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
