@@ -631,7 +631,7 @@ def title_notes(calls, now):
     return notes
 
 
-def call_page(c, today, now, region_pages, profile_pages, province_pages, note="", near=()):
+def call_page(c, today, now, region_pages, profile_pages, province_pages, note="", near=(), pair_pages=()):
     """Full HTML of one call page."""
     e = html.escape
     closed = c["_closed"]
@@ -684,11 +684,15 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     pk = "prov-" + slug(c["_prov"]) if c["_prov"] else None
     if pk in province_pages:
         follow.append(f'<a class="pill" href="../provincia/{pk[5:]}.html">Enti locali in provincia di {e(c["_prov"])}</a>')
-    for p in c["_prof"][:2]:
-        if f"profilo-{p}" in profile_pages:
+    for p in c["_prof"][:2]:  # the profession×region page when there is one: closer to what the reader searched
+        if f"{p}/{keys[0]}" in pair_pages:
+            follow.append(f'<a class="pill" href="../profilo/{p}/{keys[0]}.html">{e(PAIR_HEAD[p])} {e(in_region(keys[0]))}</a>')
+        elif f"profilo-{p}" in profile_pages:
             follow.append(f'<a class="pill" href="../profilo/{p}.html">{e(profili.LABEL[p])}</a>')
     for s in c["_studio"]:
-        if f"profilo-{s}" in profile_pages:
+        if f"{s}/{keys[0]}" in pair_pages:
+            follow.append(f'<a class="pill" href="../profilo/{s}/{keys[0]}.html">Concorsi {e(studio.PHRASE[s])} {e(in_region(keys[0]))}</a>')
+        elif f"profilo-{s}" in profile_pages:
             follow.append(f'<a class="pill" href="../profilo/{s}.html">Concorsi {e(studio.PHRASE[s])}</a>')
     if c["_prof"]:
         p = c["_prof"][0]
@@ -758,13 +762,13 @@ def nearby(c, idx):
     return out
 
 
-def write_call_pages(outdir, kept, open_, today, now, region_pages, profile_pages, province_pages):
+def write_call_pages(outdir, kept, open_, today, now, region_pages, profile_pages, province_pages, pair_pages=()):
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
     idx = near_index(open_)
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""), nearby(c, idx))
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""), nearby(c, idx), pair_pages)
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -789,7 +793,7 @@ def prov_region(sel):
     return max(sorted(set(keys)), key=keys.count)
 
 
-def write_region_pages(outdir, sets, vsets, when):
+def write_region_pages(outdir, sets, vsets, when, pair_keys=()):
     """regione/<slug>.html for every group with at least one open call. Returns the slugs written."""
     e = html.escape
     os.makedirs(os.path.join(outdir, "regione"), exist_ok=True)
@@ -804,9 +808,13 @@ def write_region_pages(outdir, sets, vsets, when):
             note += ('<p class="small">Comuni, Province e Città metropolitane, per provincia: '
                      + " · ".join(f'<a href="../provincia/{k[5:]}.html">{e(v[0])}</a> {len(v[1])}' for k, v in provs) + ".</p>\n")
         profs = {p: sum(p in c["_prof"] for c in sel) for p in profili.LABEL}
-        if any(profs.values()):  # links to the profession page filtered on this region (REGION_FILTER)
+        if any(profs.values()):  # links to the profession×region page, or to the profession page filtered on this region (REGION_FILTER)
             note += ('<p class="small">Per professione: '
-                     + " · ".join(f'<a href="../profilo/{p}.html#{key}">{e(profili.LABEL[p])}</a> {n}' for p, n in profs.items() if n) + ".</p>\n")
+                     + " · ".join(f'<a href="{pair_link(p, key, pair_keys, "../")}">{e(profili.LABEL[p])}</a> {n}' for p, n in profs.items() if n) + ".</p>\n")
+        levels = {s: sum(s in c["_studio"] for c in sel) for s in studio.LABEL}
+        if any(levels.values()):
+            note += ('<p class="small">Per titolo di studio: '
+                     + " · ".join(f'<a href="{pair_link(s, key, pair_keys, "../")}">{e(studio.LABEL[s])}</a> {n}' for s, n in levels.items() if n) + ".</p>\n")
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>Concorsi pubblici aperti: {e(label)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
@@ -913,7 +921,7 @@ def write_new_page(outdir, open_, when, today):
 LEVEL_NOTE = "inPA non indica il titolo di studio richiesto: lo stimo dal livello del contratto nel titolo o nella descrizione (per esempio «Area degli Istruttori» o «categoria C» = diploma), quindi qualche concorso può mancare o essere fuori posto. I requisiti veri sono nel bando: controllali sempre."
 
 
-def write_profile_pages(outdir, psets, when):
+def write_profile_pages(outdir, psets, when, pair_keys=()):
     """profilo/<slug>.html for every profession with at least one open call. Returns the keys written."""
     e = html.escape
     os.makedirs(os.path.join(outdir, "profilo"), exist_ok=True)
@@ -931,7 +939,8 @@ def write_profile_pages(outdir, psets, when):
         for c in sel:
             for k in keys_of(c):
                 by_region[k] = by_region.get(k, 0) + 1
-        spread = " · ".join(f'<a href="#{k}">{e(label_of(k))}</a> {n}' for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
+        spread = " · ".join(f'<a href="{f"{name}/{k}.html" if f"{name}/{k}" in pair_keys else "#" + k}">{e(label_of(k))}</a> {n}'
+                            for k, n in sorted(by_region.items(), key=lambda x: (-x[1], x[0])))
         names = html.escape(json.dumps({k: label_of(k) for k in by_region}, ensure_ascii=False))
         by_disc, disc_line, disc_attr = {}, "", ""
         if name == "medici":
@@ -960,6 +969,64 @@ def write_profile_pages(outdir, psets, when):
                   f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} {studio.PHRASE[name] if level else 'per ' + label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
+    return written
+
+
+# profilo/<name>/<region>.html: the same list as profilo/<name>.html#<region>, as a page of its own that search engines
+# can index (people search "concorsi infermieri campania", "concorsi per diplomati palermo"). Only with PAIR_MIN open calls.
+PAIR_MIN = 3
+PAIR_HEAD = {"amministrativi": "Concorsi per amministrativi e contabili", "tecnici": "Concorsi per tecnici, ingegneri, architetti e geometri",
+             "polizia-locale": "Concorsi di polizia locale", "forze-ordine": "Concorsi per forze dell'ordine, militari e vigili del fuoco",
+             "medici": "Concorsi per medici", "infermieri": "Concorsi per infermieri", "sanitari": "Concorsi per professioni sanitarie e OSS",
+             "insegnanti-educatori": "Concorsi per insegnanti, docenti ed educatori", "assistenti-sociali": "Concorsi per assistenti sociali",
+             "informatici": "Concorsi per informatici", "ricerca": "Posti, assegni e borse di ricerca",
+             "operai-autisti": "Concorsi per operai, autisti e manutentori", "dirigenti": "Concorsi per dirigenti e segretari comunali",
+             "cultura": "Concorsi in biblioteche, archivi e musei", "incarichi-esterni": "Incarichi esterni, consulenze e OIV",
+             "avvocati": "Concorsi per avvocati", **{s: f"Concorsi {studio.PHRASE[s]}" for s in studio.LABEL}}
+
+
+IN_REGION = {"lazio": "nel Lazio", "marche": "nelle Marche"}  # "in" for the others
+
+
+def in_region(key):
+    return IN_REGION.get(key, f"in {label_of(key)}")
+
+
+def pair_link(name, key, pair_pages, prefix):
+    """The profession×region page if it exists, otherwise the profession page filtered by hash."""
+    return f"{prefix}profilo/{name}/{key}.html" if f"{name}/{key}" in pair_pages else f"{prefix}profilo/{name}.html#{key}"
+
+
+def write_pair_pages(outdir, psets, when):
+    """profilo/<name>/<region>.html for every profession or education level with PAIR_MIN open calls in a region
+    (not the national group: nobody searches for it by place). Returns the "<name>/<region>" keys written."""
+    e = html.escape
+    written = []
+    for key, (label, sel) in psets.items():
+        name = key[len("profilo-"):]
+        level = name in studio.LABEL
+        for r in [slug(x) for x in REGIONS]:
+            rsel = [c for c in sel if r in keys_of(c)]
+            if len(rsel) < PAIR_MIN:
+                continue
+            rlab = label_of(r)
+            head = f"{PAIR_HEAD[name]} {in_region(r)}"
+            note = (f'{LEVEL_NOTE} <a href="../../info.html#titolo-di-studio">Come lo stimo</a>.' if level else
+                    'inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. '
+                    f'Per non perderne, guarda anche <a href="../../regione/{r}.html">tutti i concorsi {e(in_region(r))}</a>. <a href="../../info.html#professioni">Come la riconosco</a>.')
+            q = custom(name, r)
+            os.makedirs(os.path.join(outdir, "profilo", name), exist_ok=True)
+            body = f"""{layout.crumbs([(f"profilo/{name}.html", label), ("", rlab)], 2)}
+<h1>{e(head)}</h1>
+<p class="lead">{plural(len(rsel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
+<p class="small">{note}</p>
+<div class="actions"><a class="pill" href="../../{e(custom(name, r, cal=True))}"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
+<a class="pill" href="../../{e(q)}"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../{name}.html">{e(label)}: tutta Italia</a><a class="pill" href="../../regione/{r}.html">Tutti i concorsi: {e(rlab)}</a><a class="pill" href="../../feed.html#email">Avvisi per email</a></div>
+{items_html(rsel, "../../")}"""
+            emit_page(outdir, f"profilo/{name}/{r}.html", f"{head}: {plural(len(rsel), 'aperto', 'aperti')}",
+                      f"{plural(len(rsel), 'concorso aperto', 'concorsi aperti')} {SU} {studio.PHRASE[name] if level else 'per ' + label.lower()} {in_region(r)}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+                      body, "./", 2, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)} · {e(rlab)}" href="../../{e(q)}">')
+            written.append(f"{name}/{r}")
     return written
 
 
@@ -1218,9 +1285,10 @@ def dataset_ld(n, latest):
     return '\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
-def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls):
+def write_sitemap(outdir, region_keys, profile_keys, province_keys, calls, pair_keys=()):
     urls = [(canonical(r), None) for r in ["index.html", "nuovi.html", "feed.html", "dati.html", "info.html"] + (["gazzetta-e-inpa.html"] if GU_ON else []) + [f"regione/{k}.html" for k in region_keys]
-            + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]]
+            + [f"profilo/{k[len('profilo-'):]}.html" for k in profile_keys] + [f"provincia/{k[5:]}.html" for k in province_keys]
+            + [f"profilo/{k}.html" for k in sorted(pair_keys)]]
     urls += [(f"{BASE}/{r}", lm) for r, lm in sorted(calls)]
     with open(os.path.join(outdir, "sitemap.xml"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -1493,15 +1561,16 @@ def main(outdir):
     write_app_data(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
     write_dataset(outdir, open_, latest, when)
-    region_keys = write_region_pages(outdir, sets, vsets, when)
-    profile_keys = write_profile_pages(outdir, psets, when)
+    pair_keys = set(write_pair_pages(outdir, psets, when))
+    region_keys = write_region_pages(outdir, sets, vsets, when, pair_keys)
+    profile_keys = write_profile_pages(outdir, psets, when, pair_keys)
     province_keys = write_province_pages(outdir, vsets, when)
-    indexable = write_call_pages(outdir, kept, open_, today, now, set(region_keys), set(profile_keys), set(province_keys))
+    indexable = write_call_pages(outdir, kept, open_, today, now, set(region_keys), set(profile_keys), set(province_keys), pair_keys)
     write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today)
     write_new_page(outdir, open_, when, today)
-    write_sitemap(outdir, region_keys, profile_keys, province_keys, indexable)
+    write_sitemap(outdir, region_keys, profile_keys, province_keys, indexable, pair_keys)
     odd = sorted({c.get("region") or "" for c in open_ if not regions_of(c)})
-    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds, {len(vsets)} province feeds; non-region values: {odd}", file=sys.stderr)
+    print(f"{len(open_)} open calls, {len(kept)} pages, {len(sets)} region feeds, {len(psets)} profession feeds, {len(vsets)} province feeds, {len(pair_keys)} profession×region pages; non-region values: {odd}", file=sys.stderr)
 
 
 if __name__ == "__main__":
