@@ -443,7 +443,16 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or "")
+    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w), c) or "")
+
+
+def doctor_job(job, c):
+    """"Dirigente medico" alone, or no job for a doctor's post, plus its one discipline: "Dirigente medico – Urologia"."""
+    full = " ".join(c["title"].split())
+    if job and job.lower() not in ("dirigente medico", "dirigenti medici") or not job and not re.search(r"\bdirigen(?:te|ti|za)\s+medic", full, re.I):
+        return job
+    ds = discipline.disciplines_of(c)
+    return f"Dirigente medico – {discipline.LABEL[ds[0]]}" if len(ds) == 1 and not re.search(r"\bvari[ae]\s+disciplin", full, re.I) else job
 
 
 DESC_TAIL = re.compile(r"(?:\s+|-)(?:[PF]\.T\.?|C\.C\.N\.L\.?|liv\b.*|area\b.*|cat\b.*|codice\b.*)$", re.I)
@@ -578,7 +587,7 @@ def job_posting(c, url):
     sc = what.other_job(full) or ""  # of other_job's headlines only the director's and the research contracts' are one job
     sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
-    job = what.role(w) or sc or desc_job(c) or what.role_late(w)
+    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w), c)
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
