@@ -443,7 +443,7 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c))
+    return (m.group(0) if m else ""), (what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or "")
 
 
 DESC_TAIL = re.compile(r"(?:\s+|-)(?:[PF]\.T\.?|C\.C\.N\.L\.?|liv\b.*|area\b.*|cat\b.*|codice\b.*)$", re.I)
@@ -547,7 +547,7 @@ NOT_A_JOB = re.compile(
     r"(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
     r"|collegio (dei revisori|sindacale)|componenti? (esterni? )?(di|della|delle) commission|commissari[oe]? (di|d['’]) ?esame"
-    r"|corso di dottorato|borse? di studio|assegn[oi] di ricerca|borse? di ricerca|profili vari|vari profili|diversi profili", re.I)
+    r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili", re.I)
 
 
 def job_posting(c, url):
@@ -575,8 +575,10 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    sc = what.other_job(full) or ""  # of other_job's headlines only the director's is one job
-    job = what.role(what.what(titles.sentence_case(full), c.get("ente"))) or (sc if sc.startswith("Direttore") else "") or desc_job(c)
+    sc = what.other_job(full) or ""  # of other_job's headlines only the director's and the research contracts' are one job
+    sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
+    w = what.what(titles.sentence_case(full), c.get("ente"))
+    job = what.role(w) or sc or desc_job(c) or what.role_late(w)
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
