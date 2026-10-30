@@ -556,7 +556,19 @@ NOT_A_JOB = re.compile(
     r"(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
     r"|collegio (dei revisori|sindacale)|componenti? (esterni? )?(di|della|delle) commission|commissari[oe]? (di|d['’]) ?esame"
-    r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili", re.I)
+    r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
+    r"|destinatari (?:dei|di) (?:percorsi|corsi) (?:formativi|di formazione)", re.I)  # trainees, not staff
+
+
+# Mobility (art. 30/34-bis): only staff of other public bodies can apply. what() names it only when it leads the title;
+# "Servizio Mobilità e Viabilità", "Kyma Mobilità", "progetti di mobilità Erasmus" are sectors, not the procedure.
+MOBILITY = re.compile(r"\b(?:(?:mediante|tramite|in|per|avviso di|bando di|procedura di|istituto della|alla)\s+(?:l['’]\s*)?(?:la\s+)?(?:mobilit[aàá]|passaggio diretto)\b"
+                      r"|(?:mobilit[aàá]|passaggio diretto)[’'\s]*(?:volontaria|esterna|interna|obbligatoria|intercompartimentale|compartimentale|tra\b|fra\b|ex\b|ai sensi"
+                      r"|di (?:personale|dipendenti)|da altre|o scorrimento|\)|”|$))", re.I)
+
+
+def is_mobility(full, w):
+    return w.startswith("Mobilità") or (bool(MOBILITY.search(full)) and not re.search(r"\bconcors", full, re.I))
 
 
 def job_posting(c, url):
@@ -588,6 +600,8 @@ def job_posting(c, url):
     sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
     job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w), c)
+    if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
+        job += " (mobilità, per dipendenti pubblici)"
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
@@ -1532,6 +1546,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
