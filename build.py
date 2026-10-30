@@ -351,7 +351,7 @@ def deadline_short(c):
 
 def entry(c):
     e = html.escape
-    rows = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", posts_text(c)),
+    rows = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", posts_text(c)),
             ("Valutazione", c.get("eval")), ("Scadenza", deadline_short(c))]
     parts = [f"<p>{e(short(titles.sentence_case(' '.join(c['title'].split())), 300))}</p>", "<ul>"]
     parts += [f"<li><b>{k}:</b> {e(v)}</li>" for k, v in rows if v] + ["</ul>"]
@@ -564,7 +564,7 @@ def job_posting(c, url):
     full = " ".join(c["title"].split())
     if NOT_A_JOB.search(full):
         return ""
-    facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", posts_text(c)),
+    facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", posts_text(c)),
              ("Valutazione", c.get("eval")), ("Scadenza", c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
     e = html.escape
     # The same text the page shows: paragraphs kept, shouting sentence-cased.
@@ -673,7 +673,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     full_title = titles.sentence_case(" ".join(c["title"].split()))
     desc_txt = c.get("desc") or ""
     desc_txt = titles.sentence_case(desc_txt) if titles.upperish(desc_txt) else desc_txt
-    rows = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Posti", str(c["posts"]) if c.get("posts") else None),
+    rows = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", str(c["posts"]) if c.get("posts") else None),
             ("Pubblicato in", is_gu(c) and f"Gazzetta Ufficiale, 4ª serie speciale, {c['gu_issue']}"),
             ("Valutazione", c.get("eval")), ("Apertura candidature", not is_gu(c) and day(c.get("opens")) and f"{day(c['opens'])} alle {c['opens'][11:]}")]
     facts = "\n".join(f"<tr><th>{k}</th><td>{e(v)}</td></tr>" for k, v in rows if v)
@@ -1578,6 +1578,11 @@ def main(outdir):
         regs = regions_of(c)
         c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
         c["_seat"] = not c["_comune"] and len(regs) == 1 and local.seat_of(c.get("ente"), regs[0]) or None
+        c["_seat_src"] = None
+        if not c["_comune"] and not c["_seat"] and len(regs) == 1:  # the call's own words first, then a single-site body's seat
+            where = local.seat_in_text(" ".join(c["title"].split()) + "\n" + (c.get("desc") or ""), regs[0])
+            c["_seat"], c["_seat_src"] = (where, "indicata nel bando") if where else (local.seat_listed(c.get("ente"), regs[0]), "sede dell’ente")
+            c["_seat_src"] = c["_seat"] and c["_seat_src"]
         if not regs and c["_prov"]:  # "Comune di Belvedere Marittimo", area "Nazionale": the comune's region (unique names only)
             r = local.geo.place(c["_comune"] or "", "" if c["_comune"] else c["_prov"])[0]
             c["_ente_region"] = next((v for k, v in REGION_BY_SLUG.items() if r and k == slug(r)), None)
