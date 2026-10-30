@@ -567,14 +567,34 @@ MOBILITY = re.compile(r"\b(?:(?:mediante|tramite|in|per|avviso di|bando di|proce
                       r"|di (?:personale|dipendenti)|da altre|o scorrimento|\)|”|$))", re.I)
 
 
+# Calls wholly reserved to the L. 68/1999 protected categories (not "con riserva di un posto", where anyone applies)
+RESERVED = re.compile(r"(?:riservat[oa]|riservata|destinat[oa])\s+(?:esclusivamente\s+|interamente\s+)?(?:a|al|ai|agli|alle|alla)\s+(?:\w+\s+){0,4}?"
+                      r"(?:categori[ae]|disabil|persone con disabilit|lavoratori disabili|personale disabile|soggetti (?:disabili|di cui all['’]\s*art(?:icolo|\.)?\s*(?:1|18)\b))"
+                      r"|interamente riservat[oa] alle persone con disabilit|avviamento numerico"
+                      r"|(?:dipendenti|personale|unit[aà] di personale)[^,;]{0,60}?appartenenti alle categorie (?:protette|di cui all['’]\s*art)", re.I)
+
+
+def is_reserved(full):
+    m = RESERVED.search(full)
+    return bool(m and re.search(r"protett|disabil|68|riservatari|art\w*\.?\s*(?:1|18)\b", full[m.start():m.end() + 120], re.I)
+                and not re.search(r"(?:prioritariamente|di cui (?:n\.\s*)?\d+\s+post[oi])\s*$", full[:m.start()], re.I))
+
+
 def is_mobility(full, w):
     return w.startswith("Mobilità") or (bool(MOBILITY.search(full)) and not re.search(r"\bconcors", full, re.I))
+
+
+# Not open to the public: internal progressions, stabilisations of the body's own temporary staff, interpelli
+# (to people already on a list of idonei, or internal), calls reserved to the body's own staff. Not job ads for
+# someone searching "lavoro <town>"; they keep their page, without JobPosting. Mobility stays, with its note.
+NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[oi]\b"
+                      r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
 
 
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
     full = " ".join(c["title"].split())
-    if NOT_A_JOB.search(full):
+    if NOT_A_JOB.search(full) or NOT_OPEN.search(full):
         return ""
     facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", posts_text(c)),
              ("Valutazione", c.get("eval")), ("Scadenza", c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
@@ -602,6 +622,8 @@ def job_posting(c, url):
     job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w), c)
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
         job += " (mobilità, per dipendenti pubblici)"
+    elif job and is_reserved(full):
+        job += " (riservato alle categorie protette)"
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
@@ -1546,7 +1568,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, bandi riservati al personale dell'ente. Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
