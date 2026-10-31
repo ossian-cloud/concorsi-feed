@@ -443,7 +443,7 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w), c) or "")
+    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or freelance_job(" ".join(c["title"].split())), c) or "")
 
 
 def doctor_job(job, c):
@@ -471,6 +471,21 @@ def desc_job(c):
     if not what.STARTS.match(j) or re.search(r"[()]", j) or re.search(r"(?:ia|che)$", first) or len(j) < 4:
         return ""  # "Statistiche assegnate…", "Ingegneria civile…": a subject, not a job
     return j
+
+
+# Lists of freelance health professionals ("elenco di infermieri a rapporto libero professionale"): one job, said plainly.
+FREELANCE_JOBS = {"infermier": "Infermiere", "fisioterapist": "Fisioterapista", r"operator\w* soci\w*[- ]?sanitari\w*": "Operatore socio sanitario",
+                  "podolog": "Podologo", "logopedist": "Logopedista", "psicolog": "Psicologo", "educator": "Educatore", "ostetric": "Ostetrica",
+                  r"medic\w* specialist": "Medico specialista"}
+FREELANCE = re.compile(r"\b(?:elenc[oh]i?\s+(?:di\s+durata\s+\w+\s+)?(?:di|dei)\s+|incarich[io]\s+libero[- ]professional[ei]\s+(?:a|ad|di|per)\s+)("
+                       + "|".join(FREELANCE_JOBS) + r")\w*\b", re.I)
+
+
+def freelance_job(full):
+    m = FREELANCE.search(full)
+    if not m or not re.search(r"libera professione|libero[- ]professional", full, re.I):
+        return ""
+    return next(v for k, v in FREELANCE_JOBS.items() if re.fullmatch(k + r"\w*", m.group(1), re.I)) + " (libera professione)"
 
 
 def write_app_data(outdir, open_, latest):
@@ -621,7 +636,7 @@ def job_posting(c, url):
     sc = what.other_job(full) or ""  # of other_job's headlines only the director's and the research contracts' are one job
     sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
-    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w), c)
+    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full), c)
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
