@@ -443,7 +443,7 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or freelance_job(" ".join(c["title"].split())), c) or "")
+    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or freelance_job(" ".join(c["title"].split())) or afam_job(c) or military_job(c), c) or "")
 
 
 def doctor_job(job, c):
@@ -486,6 +486,40 @@ def freelance_job(full):
     if not m or not re.search(r"libera professione|libero[- ]professional", full, re.I):
         return ""
     return next(v for k, v in FREELANCE_JOBS.items() if re.fullmatch(k + r"\w*", m.group(1), re.I)) + " (libera professione)"
+
+
+# AFAM teaching posts: the job is the artistic-disciplinary sector ("AFAM 019 – STRUMENTI A PERCUSSIONE"); one sector only.
+AFAM_CODE = re.compile(r"\bAFAM\s?0?(\d{3})\b", re.I)
+AFAM_NAME = re.compile(r"\bAFAM\s?0?\d{3}\s*(?:\((?:ex\s+)?[A-Z]{4}/\d{2}\)\s*)?[–:-]?\s*(?:\((?:ex\s+)?[A-Z]{4}/\d{2}\)\s*[–-]?\s*)?"
+                       r"([A-Za-zÀ-ú][A-Za-zÀ-ú'’ ]{2,70}?)\s*(?=$|[(,.;–-]|\s(?:ex|per|a\.a\.?|presso|dpr|valid\w*)\b)", re.I)
+
+
+def afam_job(c):
+    """"Docente – Strumenti a percussione (AFAM019)", or "Docente (AFAM030)" when only the code is given; "" otherwise."""
+    full = " ".join(c["title"].split())
+    text = full + " \n " + " ".join((c.get("desc") or "").split())
+    if len(set(AFAM_CODE.findall(text))) != 1 or not re.search(r"docent|insegnament|reclutamento|AFAM\s?0?\d{3}", full, re.I):
+        return ""
+    code = "AFAM" + AFAM_CODE.search(text).group(1)
+    names = [m.group(1).strip() for m in AFAM_NAME.finditer(text) if not re.match(r"(?:bando|sad|afam|procedur|selezion|concorso|avviso)\w*\b", m.group(1), re.I)]
+    return f"Docente – {names[0][0].upper() + names[0][1:].lower()} ({code})" if names else f"Docente ({code})"
+
+
+# Armed forces' volunteers: "Volontari in ferma iniziale (VFI) nell'Esercito", "100 VSP della Marina Militare".
+FORCES = re.compile(r"\b(Esercito|Marina Militare|Aeronautica Militare)\b", re.I)
+
+
+def military_job(c):
+    full = " ".join(c["title"].split())
+    text = full + " " + (c.get("desc") or "")
+    if re.search(r"\bvolontari\w* in ferma (?:prefissata )?iniziale\b|\bVFI\b", full, re.I):
+        job = "Volontario in ferma prefissata iniziale (VFI)"
+    elif re.search(r"\bVSP\b|\bvolontari\w* in servizio permanente\b", full):
+        job = "Volontario in servizio permanente (VSP)"
+    else:
+        return ""
+    forces = {m.lower().capitalize().replace(" m", " M").replace(" militare", " Militare") for m in FORCES.findall(text)}
+    return job + (" – " + forces.pop() if len(forces) == 1 else "")
 
 
 def write_app_data(outdir, open_, latest):
@@ -570,7 +604,7 @@ NOT_A_JOB = re.compile(
     r"\b(formazione|istituzione|costituzione|aggiornamento|creazione|predisposizione)\s+(di\s+)?(un[oa]?\s+|dell[oae]?\s*['’]?\s*|del\s+|degli\s+)?"
     r"(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
-    r"|collegio (dei revisori|sindacale)|componenti? (esterni? )?(di|della|delle) commission|commissari[oe]? (di|d['’]) ?esame"
+    r"|collegio (dei revisori|sindacale)|component[ei] (esterni? |esperti? )?((di|della|delle) )?commission|commissari[oe]? (di|d['’]) ?esame"
     r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
     r"|destinatari (?:dei|di) (?:percorsi|corsi) (?:formativi|di formazione)", re.I)  # trainees, not staff
 
@@ -605,6 +639,7 @@ def is_mobility(full, w):
 # someone searching "lavoro <town>"; they keep their page, without JobPosting. Mobility stays, with its note.
 NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[oi]\b"
                       r"|idone\w*\s+(?:collocat\w+\s+)?(?:in|nelle|di|delle)\s+(?:vigenti\s+)?graduatori|(?:utilizzo|scorrimento|utilizzazione)\s+(?:di\s+|delle\s+|della\s+)?(?:\w+\s+){0,2}graduatori"
+                      r"|personale\s+(?:\w+\s+){0,3}in\s+disponibilit|iscritti\s+(?:negli\s+elenchi\s+)?ormel"  # art. 34/34-bis: only staff on availability lists
                       r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
 
 
@@ -636,7 +671,7 @@ def job_posting(c, url):
     sc = what.other_job(full) or ""  # of other_job's headlines only the director's and the research contracts' are one job
     sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
-    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full), c)
+    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c), c)
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
@@ -1585,7 +1620,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente. Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
