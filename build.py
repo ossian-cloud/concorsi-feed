@@ -585,9 +585,11 @@ def is_mobility(full, w):
 
 
 # Not open to the public: internal progressions, stabilisations of the body's own temporary staff, interpelli
-# (to people already on a list of idonei, or internal), calls reserved to the body's own staff. Not job ads for
+# (to people already on a list of idonei, or internal), calls reserved to the body's own staff, calls to winners and
+# idonei of other bodies' rankings ("utilizzo di graduatorie di altri enti"). Not job ads for
 # someone searching "lavoro <town>"; they keep their page, without JobPosting. Mobility stays, with its note.
 NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[oi]\b"
+                      r"|idone\w*\s+(?:collocat\w+\s+)?(?:in|nelle|di|delle)\s+(?:vigenti\s+)?graduatori|(?:utilizzo|scorrimento|utilizzazione)\s+(?:di\s+|delle\s+|della\s+)?(?:\w+\s+){0,2}graduatori"
                       r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
 
 
@@ -1568,7 +1570,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, bandi riservati al personale dell'ente. Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente. Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
