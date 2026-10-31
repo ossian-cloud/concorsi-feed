@@ -165,9 +165,10 @@ ACRONYMS = {"AFAM", "ASL", "ASP", "ASST", "OSS", "ICT", "CED", "PNRR", "ATA", "S
 
 LIST_ONLY = re.compile(r"\b(?:graduatori[ae]|elenc[ohi]|alb[oi]|idone[io]|manifestazione|interesse|progressione|stabilizzazione|aggiornamento|categorie(?! protette)|vari profili|profili vari|diversi profili)\b", re.I)  # not a post ("categorie protette" is a reserve)
 # A call that forms a ranking or list to hire from is open to anyone: "selezione per la formazione di una graduatoria … di assistente sociale";
+# so is a public selection that updates an art. 3-bis list of idonei with new candidates;
 # an interpello to people already on a list, a progression or a list of many profiles is not.
-OPEN_LIST = re.compile(r"\b(?:formazione|formulazione|costituzione|istituzione)\s+(?:di\s+|della\s+|dell['’]\s*|del\s+)?(?:una?\s+|due\s+)?[“\"«]?\s*(?:graduatori[ae]|elenc[ohi]|alb[oi])|\belenco (?:integrativo|fuori graduatoria)", re.I)
-NOT_OPEN = re.compile(r"\b(?:interpell\w*|utilizzo|scorrimento|progression\w*|stabilizzazion\w*|manifestazione|aggiornamento|vari profili|profili vari|diversi profili|insegnamenti vari)\b", re.I)
+OPEN_LIST = re.compile(r"\b(?:formazione|formulazione|costituzione|istituzione)\s+(?:di\s+|della\s+|dell['’]\s*|del\s+)?(?:una?\s+|due\s+)?[“\"«]?\s*(?:graduatori[ae]|elenc[ohi]|alb[oi])|\belenco (?:integrativo|fuori graduatoria)|\baggiornamento\s+(?:dell['’]\s*|di\s+un\s+)elenco\s+di\s+idonei", re.I)
+NOT_OPEN = re.compile(r"\b(?:interpell\w*|utilizzo|scorrimento|progression\w*|stabilizzazion\w*|manifestazione|aggiornamento(?!\s+(?:dell['’]\s*|di\s+un\s+)elenco\s+di\s+idonei)|vari profili|profili vari|diversi profili|insegnamenti vari)\b", re.I)
 
 
 def listish(t, full):
