@@ -35,7 +35,7 @@ DISCIPLINES = [
     ("malattie-metaboliche", "Malattie metaboliche e diabetologia", r"diabetolog|malattie metaboliche"),
     ("malattie-respiratorie", "Malattie dell'apparato respiratorio", r"apparato respiratorio|pneumolog"),
     ("medicina-del-lavoro", "Medicina del lavoro", r"medicina del lavoro|medico competente"),
-    ("medicina-emergenza", "Medicina d'emergenza-urgenza", r"emergenza[- ]urgenza|\bmeu\b|emergenza e urgenza|pronto soccorso|\b118\b|medicina d.urgenza"),
+    ("medicina-emergenza", "Medicina d'emergenza-urgenza", r"emergenza[- ]urgenza|\bmeu\b|emergenza e urgenza|pronto soccorso|\b118\b|medicina d.urgenza|chirurgia d.accettazione e d.urgenza|\bmcau\b"),
     ("medicina-fisica", "Medicina fisica e riabilitazione", r"medicina fisica|riabilitazione"),
     ("medicina-generale", "Medicina generale (territorio)", r"medici(?:na)? di (?:base|famiglia|medicina generale)|assistenza primaria|\bmmg\b"),
     ("medicina-interna", "Medicina interna", r"medicina interna"),

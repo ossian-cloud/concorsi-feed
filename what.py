@@ -150,12 +150,12 @@ def what(t, ente=None):
 
 # The job alone, for JobPosting.title: after "n. 2 posti di" up to the first area, contract or punctuation.
 POSTS = re.compile(r"\b(?:(?:n\.?\s*|nr\.?\s*|numero\s+)?(?:\d+|un[oa]?|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s*)?(?:\(\w+\)\s*)?"
-                   r"(?:posti|posto|unit[aà]|figur[ae]|incarichi|incarico|borse?(?: di studio)?)\s+(?:(?:di|per|a(?!\s+tempo\b)|da)\s+)?(?:(?:profilo|profili)\s+(?:professionale\s+)?(?:di\s+)?)?", re.I)
+                   r"(?:posti|posto|unit[aà]|figur[ae]|incarichi|incarico|borse?(?: di studio)?)\s+(?:in ruolo\s+)?(?:(?:di|per|a(?!\s+tempo\b)|da)\s+)?(?:(?:profilo|profili)\s+(?:professionale\s+)?(?:di\s+)?)?", re.I)
 ROLE_END = re.compile(r"\s+(?:a tempo|con contratto|area\b|cat\.|categoria|presso|da assegnare|da destinare|nel(?:l['’]|la|lo|le)?\s|per (?:il|la|l['’]|le|i|gli)\s|ccnl|del ruolo|ruolo|livello|comparto|-\s|–|—|ai sensi|riservat|\(|ex\s)|\s+(?:di cui|a\.a\.|art\.|afam\s*\d*\b|e\.?q\.?(?=\s|$)|comune di|triennio|in libera professione|tempo\b|\d+\s*%)|\s+(?:nei|negli|in possesso|dpr|d\.p\.r|inquadrat[oa]|appartenente|da (?:collocare|inquadrare|adibire|impiegare)|part[- ]time|ed e\.?\s?q|-)\b|\s+[“-]|(?<=\w)-\s*(?=(?:area|settore|categoria|cat\.?|ccnl|c\.c\.n\.l|profilo)\b)|\s+c\.c\.n\.l\b|\s+fino\s+a(?:l|lla)?\b|\s+per candidat|[–—_]|\s+con\s+(?:conoscenze|riserva)|\s+di [IVX]+\b|\s+[IVX]+\s+liv|[;:(,”\x22»]", re.I)
 ROLE_FILLER = re.compile(r"\s*(?:a tempo (?:pieno|parziale|indeterminato|determinato|intederminato)(?:\s*(?:e|ed|/)\s*(?:a tempo\s+)?(?:pieno|parziale|indeterminato|determinato))*(?:\s*\([^)]{1,40}\))?"
                  r"|(?:di|del|nel|nell['’]|con(?: il)?|il|al|alla|in|per)\s+(?=(?:profilo|personale|qualifica|ruolo)\b)|(?:profilo|qualifica)(?: professionale)?(?: di)?\b|personale\b(?: (?:con|nel|di))?"
                  r"|(?:di|del)\s+(?=\S)|vacant[ei]\b|(?:della|nella) dotazione organica\b|[“”\"«»,]\s*)\s*", re.I)
-JOB_NOUN = re.compile(r"(?:funzionari|istruttor|dirigent|operator|assistent|agent|specialist|tecnic|collaborator|esecutor|infermier|medic|ricercator|docent|educat|autist|operai|ingegner|architett|geometr|psicolog|farmacist|veterinar|ostetric|fisioterapist|logopedist|biolog|chimic|avvocat|commissari|ispettor|vigil|bibliotecari|cuoc|maestr|insegnant|professor|accompagnator|gestor|espert|analist|addett|coordinat|responsabil|segretari|comandant|ufficial|sottufficial|cantonier|necrofor|elettricist|idraulic|giardinier|tecnolog|dietist|ortottist|puericultr|ausiliari|commess|impiegat|archivist|statistic|economist|giornalist|interpret|tradutt|programmator|sistemist|perit|direttor|primari|pediatr|dentist|odontoiatr|psicoterapeut|sociolog|geolog|agronom|forestal|guardi|custod|portier|usciere|centralinist|magazzinier|manutentor|meccanic|conducent|macchinist|marinai|carpentier|muratore|fabbro|falegnam|pittor|restaurator|curator|musicist|orchestral|lettor|consulent|animat|marescial|atlet|ginecolog|cardiolog|anestesist|radiolog|vice[ -]?(?:commissari|ispettor|comandant|segretari|dirigent|direttor|questor|prefett)|prim[oa] (?:tecnolog|ricercator|dirigent)|developer|controller|project manager|tutor|consiglier)", re.I)
+JOB_NOUN = re.compile(r"(?:funzionari|istruttor|dirigent|operator|assistent|agent|specialist|tecnic|collaborator|esecutor|infermier|medic|ricercator|docent|educat|autist|operai|ingegner|architett|geometr|psicolog|farmacist|veterinar|ostetric|fisioterapist|logopedist|biolog|chimic|avvocat|commissari|ispettor|vigil|bibliotecari|cuoc|maestr|insegnant|professor|accompagnator|gestor|espert|analist|addett|coordinat|responsabil|segretari|comandant|ufficial|sottufficial|cantonier|necrofor|elettricist|idraulic|giardinier|tecnolog|dietist|ortottist|puericultr|ausiliari|commess|impiegat|archivist|statistic|economist|giornalist|interpret|tradutt|programmator|sistemist|perit|direttor|primari|pediatr|dentist|odontoiatr|psicoterapeut|sociolog|geolog|agronom|forestal|guardi|custod|portier|usciere|centralinist|magazzinier|manutentor|meccanic|conducent|macchinist|marinai|carpentier|muratore|fabbro|falegnam|pittor|restaurator|curator|musicist|orchestral|lettor|consulent|animat|marescial|atlet|ginecolog|cardiolog|anestesist|radiolog|vice[ -]?(?:commissari|ispettor|comandant|segretari|dirigent|direttor|questor|prefett)|prim[oa] (?:tecnolog|ricercator|dirigent)|developer|controller|project manager|tutor|consiglier|coadiutor|rilevator|research|full[ -]stack)", re.I)
 
 HEADCOUNT = re.compile(r"(?:^|\bn\.?\s*\d+\s*|\b(?:\d+|un[oa]?|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+)(?:\(\w+\)\s*)?(?=" + JOB_NOUN.pattern + ")", re.I)
 
@@ -177,7 +177,7 @@ def listish(t, full):
 
 
 COUNTISH = re.compile(r"\b(?:posti?|posizion[ei]|unit[aà]|figur[ae]|incarich[oi]|collaborazion[ei]|risors[ae]|person[ae])\b", re.I)
-PROFILO = re.compile(r"\bprofilo(?:\s+professionale)?(?:\s+di)?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)
+PROFILO = re.compile(r"\bprofilo(?:\s+professionale)?(?:\s+di)?:?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)
 STARTS = re.compile(r"(?=[“\"«]?" + JOB_NOUN.pattern + ")", re.I)  # the title opens with the job itself
 
 
@@ -208,6 +208,9 @@ def finish(t, fallback=False, quoted=False):
     words = t.split()
     shouting = sum(len(x) > 1 and x.isupper() for x in words) > 1  # "FUNZIONARIO TECNICO esperto", "Docenti DI PRIMA FASCIA"
     t = " ".join(x.lower() if x.isupper() and x.replace("-", "").isalpha() and x not in ACRONYMS and not ROMAN.match(x) and (len(x) > 4 or shouting) else x for x in words)
+    words = t.split()
+    if len(words) > 1 and all(x[:1].isupper() and x[1:].islower() for x in words if x.isalpha() and len(x) > 2):
+        t = " ".join([words[0]] + [x if x.isupper() else x.lower() for x in words[1:]])  # "Coadiutore Amministrativo", "Istruttore Contabile"
     return t[:1].upper() + t[1:]
 
 
@@ -218,7 +221,7 @@ FB_DASH = re.compile(r"\s*[–—-]\s*(?:settore|area|ccnl|c\.c\.n\.l|da|presso|
 GENERIC = {"tecnico", "assistente", "operator"}
 BARE = {"funzionario", "funzionari", "istruttore", "istruttori", "dirigente", "operatore", "collaboratore", "assistente", "tecnico"}
 FB_STARTS = [re.compile(p, re.I) for p in [
-    r"\b(?:profilo(?:\s+professionale)?|qualifica|qualit[àa]|figura professionale)(?:\s+di)?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "con profilo professionale di istruttore tecnico"
+    r"\b(?:profilo(?:\s+professionale)?|qualifica|qualit[àa]|figura professionale)(?:\s+di)?:?\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "con profilo professionale di istruttore tecnico"
     r"\b(?:posti?|unit[aà]|incarich[io]|figur[ae]|posizione)\b(?:\s+(?:in ruolo|a tempo|pieno|parziale|indeterminat\w+|determinat\w+|e|ed|/|part[- ]time|full[- ]time|\(\d+[^)]{0,25}\)|\d+ ore|a orario \w+|con (?:rapporto|contratto) di lavoro(?: subordinato)?))*"
     r"\s+(?:di|quale|come)\s+(?=(?:n\.?\s*\d+\s+)?[“\"«]?" + JOB_NOUN.pattern + ")",  # "n. 1 posto a tempo pieno (18 ore) di istruttore"
     r"\bincarich[io]\b.{0,150}?\b(?:s\.?m\.?i\.?|ss\.?\s?mm\.?\s?ii\.?|comma \d+),?\s+(?:di|quale)\s+(?=[“\"«]?" + JOB_NOUN.pattern + ")",  # "incarico ... ex art. 110, comma 1, di educatore"
@@ -270,7 +273,7 @@ def role_late(t):
     lst = listish(t, full)
     return None if lst else role_after(t) or area_job(t)
 
-HIRE_NEAR = re.compile(r"\b(?:post[oi]|p\.to|unit[aà]|incarich?[oi]|contratt[oi]|professione|assunzione|copertura|reclutamento|selezione|avviso|concorso|funzioni|profilo|tempo|determinat\w*|indeterminat\w*|qualifica|posizion[ei]|n[°.]\s*\d+|\d+)\b", re.I)
+HIRE_NEAR = re.compile(r"\b(?:post[oi]|p\.to|unit[aà]|incarich?[oi]|contratt[oi]|professione|assunzione|copertura|reclutamento|selezione|avviso|concorso|funzioni|profilo|tempo|determinat\w*|indeterminat\w*|qualifica|posizion[ei]|graduatori[ae]|elenc[ohi]|alb[oi]|n[°.]\s*\d+|\d+)\b", re.I)
 
 
 def role_after(t):
@@ -301,7 +304,7 @@ SECTORS = r"amministrativo[ -/]+contabile|amministrativo|contabile|tecnico|infor
 AREAS = {"funzionari": "Funzionario", "collaboratori": "Collaboratore", "istruttori": "Istruttore", "operatori esperti": "Operatore esperto",
          "operatori": "Operatore", "assistenti": "Assistente", "elevate professionalità": "Elevata professionalità"}
 AREA = re.compile(r"\barea\s+(?:professionale\s+)?(?:dei|degli|delle)?\s*[“\"«]?(" + "|".join(AREAS) + r")\b[”\"»]?(?:\s+(?:e|ed)\s+(?:dell['’]\s*)?elevata qualificazione)?"
-                  r"(?:\s*[,–—-]\s*|\s+)(?:(?:nel\s+|del\s+)?(?:settore|sett\.)\s*([^,;:()–—]{3,45}?)|area\s+(tecnica|amministrativa|contabile|informatica|di vigilanza))(?=\s*(?:[,;:()–—]|\s-|$|\s+(?:a tempo|per|presso|con|da|del|della|nel|ccnl)\b))", re.I)
+                  r"(?:\s*[,–—/-]\s*|\s+)(?:(?:nel\s+|del\s+)?(?:settore|sett\.)\s*([^,;:()–—]{3,45}?)|area\s+(tecnica|amministrativa|contabile|informatica|di vigilanza))(?=\s*(?:[,;:()–—/]|\s-|$|\s+(?:a tempo|per|presso|con|da|del|della|nel|ccnl)\b))", re.I)
 
 
 AREA_PROFILE = re.compile(r"\barea\s+(?:professionale\s+)?(?:dei|degli|delle)?\s*[“\"«]?(" + "|".join(AREAS) + r")\b[”\"»]?(?:\s+(?:e|ed)\s+(?:dell['’]\s*|delle\s+)?(?:elevata qualificazione|elevate qualificazioni|e\.\s?q\.?))?"
