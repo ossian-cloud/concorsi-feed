@@ -493,13 +493,13 @@ def desc_job(c):
 FREELANCE_JOBS = {"infermier": "Infermiere", "fisioterapist": "Fisioterapista", r"operator\w* soci\w*[- ]?sanitari\w*": "Operatore socio sanitario",
                   "podolog": "Podologo", "logopedist": "Logopedista", "psicolog": "Psicologo", "educator": "Educatore", "ostetric": "Ostetrica",
                   r"medic\w* specialist": "Medico specialista"}
-FREELANCE = re.compile(r"\b(?:elenc[oh]i?\s+(?:di\s+durata\s+\w+\s+)?(?:di|dei)\s+|incarich[io]\s+libero[- ]professional[ei]\s+(?:a|ad|di|per)\s+)("
+FREELANCE = re.compile(r"\b(?:elenc[oh]i?\s+(?:di\s+durata\s+\w+\s+)?(?:di|dei)\s+|incarich[io]\s+libero\s*[-–]?\s*professional[ei]\s+(?:a|ad|di|per)\s+)("
                        + "|".join(FREELANCE_JOBS) + r")\w*\b", re.I)
 
 
 def freelance_job(full):
     m = FREELANCE.search(full)
-    if not m or not re.search(r"libera professione|libero[- ]professional", full, re.I):
+    if not m or not re.search(r"libera professione|libero\s*[-–]?\s*professional", full, re.I):
         return ""
     return next(v for k, v in FREELANCE_JOBS.items() if re.fullmatch(k + r"\w*", m.group(1), re.I)) + " (libera professione)"
 
@@ -744,8 +744,8 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    sc = what.other_job(full) or ""  # of other_job's headlines only the director's and the research contracts' are one job
-    sc = sc if sc.startswith(("Direttore", "Incarico", "Contratto")) else ""
+    sc = what.other_job(full) or ""  # of other_job's headlines only the director's, the manager's and the research contracts' are one job
+    sc = sc if sc.startswith(("Direttore", "Dirigente", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
     job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c), c)
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
