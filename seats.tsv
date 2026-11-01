@@ -1,5 +1,6 @@
 # ente (as on inPA)	region	comune (ISTAT)	source checked
 # Bodies whose staff work in one comune only, each checked on an official page (30 Oct 2026). Multi-site bodies are left out on purpose.
+# 1 Nov 2026: checked and left out as multi-site: Conservatorio Puccini (La Spezia + Santo Stefano di Magra), Tchaikovsky/Arlia (Nocera Terinese + Catanzaro), Altavita (Padova + Selvazzano Dentro).
 IRCCS Ospedale Policlinico San Martino	Liguria	Genova	https://www.ospedalesanmartino.it/it/
 UNIVERSITA’ DELLA CALABRIA	Calabria	Rende	https://www.unical.it
 Conservatorio Statale di Musica Guido Cantelli	Piemonte	Novara	https://consno.it/contatti/
@@ -57,3 +58,5 @@ Conservatorio di Musica E. R. Duni	Basilicata	Matera	https://www.conservatorioma
 Conservatorio Statale di Musica “Pietro Mascagni”	Toscana	Livorno	https://www.consli.it/it/277/-/segreteria
 Azienda Pubblica di Servizi alla Persona Letizia Veralli, Giulio Ed Angelo Cortesi	Umbria	Todi	https://www.verallicortesi.it/site/numeri_indirizzi_utili/
 Azienda Pubblica di Servizi alla persona casa di Riposo Mosca	Umbria	Gubbio	http://www.casadiriposomosca.com/
+CONSERVATORIO DI MUSICA ARCANGELO CORELLI	Sicilia	Messina	https://www.consme.it
+CONSERVATORIO STATALE DI MUSICA L. CANEPA	Sardegna	Sassari	https://www.conservatorio.sassari.it/

@@ -643,6 +643,23 @@ NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[o
                       r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
 
 
+def audience_note(c):
+    """A line under the title when the call looks closed to the general public (same tests as JobPosting), so that
+    someone who arrived from "lavoro <town>" knows before reading the call. A guess from the title: the call decides."""
+    full = " ".join(c["title"].split())
+    if NOT_OPEN.search(full):
+        what_ = ("Dal titolo sembra una procedura <b>non aperta a tutti</b>: progressione o stabilizzazione del personale dell'ente, "
+                 "interpello, scorrimento di graduatorie o elenchi già formati, o avviso riservato a chi è già dipendente.")
+    elif is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):
+        what_ = ("Dal titolo sembra un <b>avviso di mobilità</b>: di norma può partecipare solo chi lavora già, a tempo indeterminato, "
+                 "in un'altra pubblica amministrazione.")
+    elif is_reserved(full):
+        what_ = "Dal titolo sembra un bando <b>riservato alle categorie protette</b> (legge 68/1999)."
+    else:
+        return ""
+    return f'<p class="note">{what_} Chi può partecipare lo dice il bando: controlla i requisiti. <a href="../info.html#mobilita">Perché lo segnalo</a></p>'
+
+
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
     full = " ".join(c["title"].split())
@@ -823,7 +840,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     body = f"""{layout.crumbs(crumb, 1)}
 <h1 class="long">{e(short(full_title, 400))}</h1>
 <p class="lead">{e(ente_name(c))}{" · " if c.get("ente") else ""}{e(region_text(c))}{"" if closed or not valid_closes(c) else f" · scadenza <b>{day(c['closes'])}</b>"}</p>
-{status}
+{status}{"" if closed else audience_note(c)}
 <div class="cta">{"".join(buttons)}</div>
 {'<p class="small">Per accedere a inPA servono SPID, CIE, CNS o eIDAS.</p>' if not closed and not is_gu(c) else ""}
 <div class="table"><table class="facts"><tbody>
@@ -1620,7 +1637,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
