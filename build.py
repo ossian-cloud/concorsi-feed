@@ -884,6 +884,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
             follow.append(f'<a class="pill" href="../regione/{k}.html">Altri concorsi: {lab}</a>')
         follow += [f'<a class="pill" href="../feed/{k}.xml"><span aria-hidden="true">📡</span> Feed: {lab}</a>',
                    f'<a class="pill" href="../calendario/{k}.ics"><span aria-hidden="true">📅</span> Scadenze: {lab}</a>']
+        follow += [telegram_pill(k, f": {lab}")] if k in TELEGRAM else []
     pk = "prov-" + slug(c["_prov"]) if c["_prov"] else None
     if pk in province_pages:
         follow.append(f'<a class="pill" href="../provincia/{pk[5:]}.html">Enti locali in provincia di {e(c["_prov"])}</a>')
@@ -925,6 +926,27 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     elif valid_closes(c) and not is_gu(c):  # a GU summary is too thin for a JobPosting
         extra = job_posting(c, url)
     return layout.page(title, desc, body, "", 1, extra, "", *source_of(c), url)
+
+
+# regional Telegram channels (projects/telegram/channels.json: {"Lombardia": "@chat"}, concorsi since 1 Nov 2026);
+# none in a plain checkout
+try:
+    _channels = json.load(open(os.path.join(HERE, "..", "telegram", "channels.json")))
+except (OSError, ValueError):
+    _channels = {}
+TELEGRAM = {slug(k): v.lstrip("@") for k, v in _channels.items()}
+TELEGRAM_SECTION = (
+    '<h2 id="telegram">Su Telegram</h2>\n<p>Per ' + " e ".join(", ".join(_channels).rsplit(", ", 1)) + " c'è un canale Telegram pubblico: "
+    "ogni mattina un messaggio con i concorsi le cui candidature si sono aperte il giorno prima, con una nota quando un bando "
+    "sembra riservato (mobilità, categorie protette). Ti iscrivi dall'app di Telegram, come a qualsiasi canale; il bot che "
+    'pubblica non vede chi si iscrive (<a href="/privacy.html">privacy</a>).</p>\n<ul>\n'
+    + "".join(f'<li><a href="https://t.me/{html.escape(v.lstrip("@"))}">Concorsi pubblici {html.escape(k)}</a></li>\n' for k, v in _channels.items())
+    + "</ul>") if _channels else ""
+
+
+def telegram_pill(key, label=""):
+    return (f'<a class="pill" href="https://t.me/{html.escape(TELEGRAM[key])}"><span aria-hidden="true">✈️</span> Canale Telegram{label}</a>'
+            if key in TELEGRAM else "")
 
 
 NEAR_MAX = 6  # open calls listed on each call page, for visitors who arrive from a search for work in one town
@@ -1028,7 +1050,7 @@ def write_region_pages(outdir, sets, vsets, when, pair_keys=()):
 <h1>{e(where)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
 {note}<div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../nuovi.html#{key}">Nuovi della settimana</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a>{telegram_pill(key)}<a class="pill" href="../nuovi.html#{key}">Nuovi della settimana</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html">Come si usano?</a></div>
 {items_html(sel, "../")}"""
         emit_page(outdir, f"regione/{key}.html", f"{where}: {plural(len(sel), 'aperto', 'aperti')}",
                   f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU}: {label}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
@@ -1678,7 +1700,8 @@ Ogni evento dura un giorno, alla scadenza delle domande, con ente, area e link a
 <h2 id="email">Un feed per email o in un lettore</h2>
 <p>Servizi come <a href="https://feedrabbit.com/">Feedrabbit</a> o <a href="https://blogtrottr.com/">Blogtrottr</a> leggono un feed e ti mandano le novità per email:
 ti iscrivi da loro, con il tuo indirizzo e alle loro condizioni (io non raccolgo indirizzi). Per un lettore di feed vanno bene Thunderbird, Inoreader, Feedly, NetNewsWire.
-La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">bandi pubblici</a>: funziona allo stesso modo.</p>"""
+La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">bandi pubblici</a>: funziona allo stesso modo.</p>
+{TELEGRAM_SECTION}"""
     emit_page(outdir, "feed.html", f"Feed e calendari dei concorsi pubblici ({SRC}) · ossian.cloud",
               f"Feed Atom e calendari delle scadenze dei concorsi pubblici aperti {SU}, per regione, provincia e professione.", body, "feed.html")
 
