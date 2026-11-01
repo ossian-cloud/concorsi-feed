@@ -1304,6 +1304,7 @@ FIELDS = [  # (column, description) for dati/concorsi-aperti.csv, documented on 
     ("url_pagina", "Pagina del concorso su ossian.cloud"),
     ("sito_ente", "Sito dell'amministrazione, come indicato su inPA"),
     ("discipline_mediche", "Solo per i medici: discipline dedotte dal titolo (nomi del D.M. 30 gennaio 1998), separate da «|»: una stima, non un dato di inPA; vuoto se non riconosciuta"),
+    ("url_candidatura", "Dove si presenta la domanda secondo il pulsante «Invia la tua candidatura» di inPA: il sito dell'ente quando inPA rimanda lì (più indirizzi separati da «|», uno per profilo), altrimenti la scheda inPA"),
 ]
 
 
@@ -1330,6 +1331,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-01", "Aggiunta in fondo la colonna <code>url_candidatura</code>: per circa un concorso su quattro inPA manda a presentare la domanda sul sito dell'ente (per esempio PICA per le università), non sul portale inPA."),
     ("2026-10-25", "<code>datapackage.json</code>: <code>apertura</code>, <code>scadenza</code> e <code>aggiornato_inpa</code> hanno ora il tipo data e ora (le prime due ora di Roma, formato <code>%Y-%m-%dT%H:%M</code>). Nessuna colonna cambiata."),
     ("2026-10-24", "Tolte circa 110 righe che non erano bandi ma avvisi su procedure già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, quasi tutte degli Uffici Scolastici Regionali). Le colonne non cambiano."),
     ("2026-10-21", "Nuovo file <code>concorsi-gazzetta.csv</code> con i concorsi che sono solo nella Gazzetta Ufficiale. <code>concorsi-aperti.csv</code> non cambia."),
@@ -1413,7 +1415,8 @@ def dataset_row(c):
             "scadenza": c["closes"] if valid_closes(c) else "",
             "retribuzione_min": num(c.get("pay_min")), "retribuzione_max": num(c.get("pay_max")),
             "aggiornato_inpa": c["lastmod"], "url_inpa": INPA_PAGE.format(c["id"]),
-            "url_pagina": f"{BASE}/{page_rel(c)}", "sito_ente": c.get("pa_url") or ""}
+            "url_pagina": f"{BASE}/{page_rel(c)}", "sito_ente": c.get("pa_url") or "",
+            "url_candidatura": "|".join(c.get("apply") or []) or INPA_PAGE.format(c["id"])}
 
 
 def write_dataset(outdir, open_, latest, when):
