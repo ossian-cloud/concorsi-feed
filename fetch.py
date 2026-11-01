@@ -103,6 +103,12 @@ def parse(page):
         if t and not PERSONAL.search(t):
             attach.append({"title": t, "url": html.unescape(href), "pub": when(pub.group(1)) if pub else None})
     pa = re.search(r'href="([^"]+)"', fields.get("Link al sito della PA", ""))
+    # "Invia la tua candidatura" goes to the inPA login, or, for some calls, to the body's own site: keep those
+    apply = []
+    for href in re.findall(r'<a[^>]+href="([^"]+)"[^>]*class="[^"]*invia-candidatura', page):
+        href = html.unescape(href)
+        if href.startswith(("http://", "https://")) and "portale.inpa.gov.it" not in href and href not in apply:
+            apply.append(href)
     posts = re.search(r"\d+", text(fields.get("Numero di posti", "")))
     return {
         "title": text(h1.group(1)),
@@ -119,6 +125,7 @@ def parse(page):
         "pay_min": money(text(fields.get("Corrispettivo minimo annuo", ""))),
         "pay_max": money(text(fields.get("Corrispettivo massimo annuo", ""))),
         "attachments": attach,
+        "apply": apply,
     }
 
 
@@ -150,6 +157,7 @@ def block(reason):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--max", type=int, default=0, help="fetch at most N pages this run (0 = all)")
+    ap.add_argument("--apply-max", type=int, default=REFETCH_MAX, help="re-read at most N stored calls without the apply link")
     a = ap.parse_args()
     if os.path.exists(BLOCKED):
         sys.exit(f"data/BLOCKED exists, not running: {open(BLOCKED).read().strip()}")
@@ -183,6 +191,10 @@ def main():
             if cid not in calls or calls[cid].get("lastmod") != lm]
     todo += [cid for cid in listed if cid in calls and cid not in todo and calls[cid].get("desc_max", 600) < DESC_MAX
              and len(calls[cid].get("desc") or "") >= calls[cid].get("desc_max", 600)][:REFETCH_MAX]
+    # records read before "apply" was kept (1 Nov 2026): re-read, open ones first, a.apply_max a run
+    missing = [cid for cid in listed if cid in calls and cid not in todo and "apply" not in calls[cid]]
+    missing.sort(key=lambda k: (calls[k].get("closes") or "") < now.strftime("%Y-%m-%d"))
+    todo += missing[:a.apply_max]
     if a.max:
         todo = todo[:a.max]
     print(f"{len(listed)} listed (newest lastmod {max(listed.values(), default='-')}), {len(calls)} stored, {len(todo)} to fetch", flush=True)

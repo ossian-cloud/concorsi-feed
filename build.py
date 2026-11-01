@@ -219,11 +219,27 @@ def euro(v):
 
 
 def pay_text(c):
-    lo, hi = c.get("pay_min"), c.get("pay_max")
+    lo, hi = (v if v and v >= 1000 else None for v in (c.get("pay_min"), c.get("pay_max")))  # "28 €" a year: an hourly figure, not shown
     if lo and hi and lo != hi:
         return f"da {euro(lo)} a {euro(hi)} € l'anno"
-    v = hi or lo
-    return f"{euro(v)} € l'anno" if v else None
+    if lo and not hi:  # inPA's "Corrispettivo minimo annuo" alone
+        return f"almeno {euro(lo)} € l'anno"
+    return f"{euro(hi)} € l'anno" if hi else None
+
+
+def paragraphs(text):
+    """The description's paragraphs. Some bodies hard-wrap their text on inPA: after a line that ends on a dash, or a
+    long line (not a list item or a heading) that runs on into a lowercase word, the text continues the same paragraph."""
+    out, prev = [], ""
+    for line in (l.strip() for l in text.split("\n")):
+        if not line:
+            continue
+        if out and (re.search(r"\s[–-]$", prev) or (len(prev) >= 60 and re.search(r"[\w’',]$", prev) and re.match(r"[a-zà-ù]", line))):
+            out[-1] += " " + line
+        else:
+            out.append(line)
+        prev = line
+    return out
 
 
 def page_rel(c):
@@ -568,7 +584,7 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag
     e = html.escape
     lis = []
     for c in calls:
-        meta = [ente_short(c, 60), region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
+        meta = [AUDIENCE_TAG.get(c.get("_aud")), ente_short(c, 60), region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
         data = f' data-r="{" ".join(keys_of(c))}"' if tag else ""
         if tag and c["_disc"]:
             data += f' data-d="{" ".join(c["_disc"])}"'
@@ -597,6 +613,8 @@ def employment(c):
     return kinds if len(kinds) == 1 else []
 
 
+TRAINEES = r"destinatari (?:dei|di) (?:percorsi|corsi) (?:formativi|di formazione)"  # trainees of a course, not staff
+
 # Calls that aren't one job (Google: JobPosting "must only be used on pages that contain a single job posting"):
 # lists of professionals, appointments to boards, PhD places and grants, several profiles at once.
 # They keep their page, just without JobPosting. Graduatorie for one profile are hiring and stay.
@@ -606,7 +624,7 @@ NOT_A_JOB = re.compile(
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
     r"|collegio (dei revisori|sindacale)|component[ei] (esterni? |esperti? )?((di|della|delle) )?commission|commissari[oe]? (di|d['’]) ?esame"
     r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
-    r"|destinatari (?:dei|di) (?:percorsi|corsi) (?:formativi|di formazione)", re.I)  # trainees, not staff
+    r"|" + TRAINEES, re.I)
 
 
 # Mobility (art. 30/34-bis): only staff of other public bodies can apply. what() names it only when it leads the title;
@@ -643,18 +661,59 @@ NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[o
                       r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
 
 
-def audience_note(c):
-    """A line under the title when the call looks closed to the general public (same tests as JobPosting), so that
-    someone who arrived from "lavoro <town>" knows before reading the call. A guess from the title: the call decides."""
+# Local-authority posts outside the ordinary career (d.lgs. 267/2000): art. 90, the mayor's or council's staff, chosen
+# in trust; art. 110, fixed-term managers and specialists. Both open to anyone, both last at most as long as the mandate.
+TUEL = r"(?=[^;]{0,40}?(?:267|t\.?\s?u\.?\s?e\.?\s?l|enti locali))"
+ART90 = re.compile(r"\bart(?:icolo|\.)?\s*90\b" + TUEL + r"|uffici?o? (?:di )?staff del sindaco|segreteria particolare del sindaco", re.I)
+ART110 = re.compile(r"\bart(?:icolo|\.)?\s*110\b" + TUEL, re.I)
+
+
+def audience(c):
+    """Who the call is for, guessed from its title (the same tests as JobPosting): "notopen", "mobility", "reserved",
+    "course" (trainees), "staff" (art. 90), "fixed" (art. 110), or "" for an ordinary public call."""
     full = " ".join(c["title"].split())
     if NOT_OPEN.search(full):
+        return "notopen"
+    if is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):
+        return "mobility"
+    if is_reserved(full):
+        return "reserved"
+    if re.search(TRAINEES, full, re.I):
+        return "course"
+    if ART90.search(full):
+        return "staff"
+    if ART110.search(full):
+        return "fixed"
+    return ""
+
+
+# in lists, after the ente: what a visitor most needs to know before opening the call
+AUDIENCE_TAG = {"notopen": "non aperto a tutti", "mobility": "mobilità, solo dipendenti pubblici", "reserved": "riservato alle categorie protette",
+                "course": "corso di formazione, non un posto di lavoro", "staff": "staff del sindaco, a termine", "fixed": "incarico a termine"}
+CLOSED_TO_PUBLIC = {"notopen", "mobility", "reserved", "course"}
+
+
+def audience_note(c):
+    """A line under the title when the call looks closed to the general public, or is not an ordinary job, so that
+    someone who arrived from "lavoro <town>" knows before reading the call. A guess from the title: the call decides."""
+    aud = c.get("_aud", audience(c))
+    if aud == "notopen":
         what_ = ("Dal titolo sembra una procedura <b>non aperta a tutti</b>: progressione o stabilizzazione del personale dell'ente, "
                  "interpello, scorrimento di graduatorie o elenchi già formati, o avviso riservato a chi è già dipendente.")
-    elif is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):
+    elif aud == "mobility":
         what_ = ("Dal titolo sembra un <b>avviso di mobilità</b>: di norma può partecipare solo chi lavora già, a tempo indeterminato, "
                  "in un'altra pubblica amministrazione.")
-    elif is_reserved(full):
+    elif aud == "reserved":
         what_ = "Dal titolo sembra un bando <b>riservato alle categorie protette</b> (legge 68/1999)."
+    elif aud == "course":
+        what_ = ("Dal titolo sembra la selezione dei partecipanti a un <b>corso di formazione</b>, non un posto di lavoro: "
+                 "i «posti» sono i posti nel corso.")
+    elif aud == "staff":
+        what_ = ("Dal titolo sembra un incarico <b>nello staff del sindaco o della giunta</b> (art. 90 del d.lgs. 267/2000): "
+                 "a tempo determinato, scelto dall'amministrazione su base fiduciaria, dura al massimo quanto il mandato.")
+    elif aud == "fixed":
+        what_ = ("Dal titolo sembra un <b>incarico a tempo determinato</b> ai sensi dell'art. 110 del d.lgs. 267/2000: "
+                 "di norma dura al massimo quanto il mandato del sindaco.")
     else:
         return ""
     return f'<p class="note">{what_} Chi può partecipare lo dice il bando: controlla i requisiti. <a href="../info.html#mobilita">Perché lo segnalo</a></p>'
@@ -671,7 +730,7 @@ def job_posting(c, url):
     # The same text the page shows: paragraphs kept, shouting sentence-cased.
     text = c.get("desc") or titles.sentence_case(full)
     text = titles.sentence_case(text) if titles.upperish(text) else text
-    desc = ("".join(f"<p>{e(p)}</p>" for p in text.split("\n") if p.strip())
+    desc = ("".join(f"<p>{e(p)}</p>" for p in paragraphs(text))
             + "".join(f"<p>{k}: {e(v)}</p>" for k, v in facts if v))
     org = {"@type": "Organization", "name": ente_name(c) or "Ente non indicato"}
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
@@ -693,6 +752,8 @@ def job_posting(c, url):
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
         job += " (riservato alle categorie protette)"
+    elif job and ART90.search(full):  # "Istruttore" alone reads like an ordinary post
+        job += " (staff del sindaco, a tempo determinato)"
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
           "datePosted": posted(c)[:10], "validThrough": rome_iso(c["closes"]), "hiringOrganization": org,
           "jobLocation": {"@type": "Place", "address": addr}}
@@ -701,13 +762,15 @@ def job_posting(c, url):
     kinds = employment(c)
     if kinds:
         ld["employmentType"] = kinds
-    lo, hi = c.get("pay_min"), c.get("pay_max")
+    lo, hi = (v if v and v >= 1000 else None for v in (c.get("pay_min"), c.get("pay_max")))
     if lo or hi:
         val = {"@type": "QuantitativeValue", "unitText": "YEAR"}
         if lo and hi and lo != hi:
             val.update(minValue=lo, maxValue=hi)
+        elif lo and not hi:
+            val["minValue"] = lo
         else:
-            val["value"] = hi or lo
+            val["value"] = hi
         ld["baseSalary"] = {"@type": "MonetaryAmount", "currency": "EUR", "value": val}
     ld.update(identifier={"@type": "PropertyValue", "name": "inPA", "value": c["id"]}, directApply=False, url=url)
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
@@ -797,11 +860,14 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     else:
         status = ""
     buttons = [f'<a class="btn" href="{e(official_url(c))}">{official_label(c)}</a>']
-    if not closed and not is_gu(c):
+    ext = c.get("apply") or []  # inPA's own button sends some calls to the body's site; several = one per profile
+    if not closed and not is_gu(c) and len(ext) == 1:
+        buttons.append(f'<a class="btn" href="{e(ext[0])}">Candidati sul sito dell\'ente</a>')
+    elif not closed and not is_gu(c) and not ext:
         buttons.append(f'<a class="btn" href="{e(INPA_APPLY.format(c["id"]))}">Candidati su inPA</a>')
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
         buttons.append(f'<a class="btn ghost" href="{e(c["pa_url"])}">Sito dell\'ente</a>')
-    paras = "".join(f"<p>{e(p)}</p>\n" for p in desc_txt.split("\n") if p.strip())
+    paras = "".join(f"<p>{e(p)}</p>\n" for p in paragraphs(desc_txt))
     description = (f"<h2>Descrizione</h2>\n{paras}" + ('<p class="small">Testo abbreviato: la descrizione completa è sulla scheda ufficiale.</p>\n'
                    if len(c.get("desc") or "") >= c.get("desc_max", 600) else "")) if paras else ""
     atts = c.get("attachments") or []
@@ -839,7 +905,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     crumb = ([(f"regione/{keys[0]}.html", label_of(keys[0]))] if keys[0] in region_pages else []) + [("", short(short_title(c), 60))]
     body = f"""{layout.crumbs(crumb, 1)}
 <h1 class="long">{e(short(full_title, 400))}</h1>
-<p class="lead">{e(ente_name(c))}{" · " if c.get("ente") else ""}{e(region_text(c))}{"" if closed or not valid_closes(c) else f" · scadenza <b>{day(c['closes'])}</b>"}</p>
+<p class="lead">{e(ente_name(c))}{" · " if c.get("ente") else ""}{e(region_text(c))}{"" if closed or not valid_closes(c) else f" · scadenza <b>{day(c['closes'])}{'' if c['closes'][11:] in ('', '23:59') else ' ore ' + c['closes'][11:]}</b>"}</p>
 {status}{"" if closed else audience_note(c)}
 <div class="cta">{"".join(buttons)}</div>
 {'<p class="small">Per accedere a inPA servono SPID, CIE, CNS o eIDAS.</p>' if not closed and not is_gu(c) else ""}
@@ -864,8 +930,9 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 NEAR_MAX = 6  # open calls listed on each call page, for visitors who arrive from a search for work in one town
 
 
-def near_index(open_):
-    """{("p", province) | ("s", city) | ("r", group key): open calls} for nearby(); open_ comes sorted by deadline."""
+def near_index(open_, now):
+    """{("p", province) | ("s", city) | ("r", group key): open calls} for nearby(); open_ comes sorted by deadline.
+    Each list puts first the calls anyone can apply to that don't close today or tomorrow (no time to get SPID)."""
     idx = {}
     for c in open_:
         if c["_prov"]:
@@ -877,6 +944,9 @@ def near_index(open_):
     for k, v in idx.items():
         if k[0] == "r":  # a whole region: the newest calls, not the hundreds closing first
             v.sort(key=lambda c: (c.get("opens") or "", c["id"]), reverse=True)
+    soon = (now + dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    for v in idx.values():
+        v.sort(key=lambda c: (c.get("_aud") in CLOSED_TO_PUBLIC, valid_closes(c) and c["closes"][:10] <= soon))
     return idx
 
 
@@ -884,16 +954,17 @@ def nearby(c, idx):
     """[(heading, calls)] of other open calls near c: in its city (an ente named after it) or, for a local
     authority, its province; then the newest in its region, up to NEAR_MAX in all. Each list says what it is."""
     out, seen = [], {c["id"]}
-    def take(key, heading):
-        sel = [o for o in idx.get(key, []) if o["id"] not in seen][:NEAR_MAX - len(seen) + 1]
+    def take(key, heading, most=NEAR_MAX):
+        sel = [o for o in idx.get(key, []) if o["id"] not in seen][:most - len(seen) + 1]
         seen.update(o["id"] for o in sel)
         if sel:
             out.append((heading, sel))
     city = c["_comune"] or c["_seat"]
+    local_max = NEAR_MAX - 2  # keep room for the region: a town's own list is often only mobility and interpelli
     if city:
-        take(("s", city), f"Concorsi aperti a {city}")
+        take(("s", city), f"Concorsi aperti a {city}", local_max)
     if c["_prov"]:
-        take(("p", c["_prov"]), f"Concorsi aperti di enti locali in provincia di {c['_prov']}")
+        take(("p", c["_prov"]), f"Concorsi aperti di enti locali in provincia di {c['_prov']}", local_max)
     k = keys_of(c)[0]
     take(("r", k), f"I più recenti in {label_of(k)}" if k != NAZ else f"I più recenti: {label_of(k)}")
     return out
@@ -903,7 +974,7 @@ def write_call_pages(outdir, kept, open_, today, now, region_pages, profile_page
     """One page per call, in 16 gzipped JSON shards served by concorso/page.php (the hosting caps the file
     count, like bandi/avviso). Returns (rel, lastmod) of the indexable pages."""
     shards, indexable = {}, []
-    idx = near_index(open_)
+    idx = near_index(open_, now)
     for c in kept:
         shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""), nearby(c, idx), pair_pages)
         if not c["_closed"]:
@@ -1637,7 +1708,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
@@ -1695,6 +1766,7 @@ def main(outdir):
             c["_ente_region"] = next((v for k, v in REGION_BY_SLUG.items() if r and k == slug(r)), None)
         for a in c.get("attachments") or []:
             a["title"] = names.redact(a.get("title"))
+        c["_aud"] = audience(c)
     # placeholders left by an administration, not calls anyone can apply to
     calls = {k: c for k, c in calls.items() if not re.match(r"\s*procedura concorsuale non attiva\s*$", c["title"], re.I)}
     now  = dt.datetime.now(ROME).replace(tzinfo=None)  # Rome wall clock, comparable with the data's local times
