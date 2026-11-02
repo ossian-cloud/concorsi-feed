@@ -614,17 +614,20 @@ def employment(c):
 
 
 TRAINEES = r"destinatari (?:dei|di) (?:percorsi|corsi) (?:formativi|di formazione)"  # trainees of a course, not staff
+# work placements (tirocini, stage), not staff; "tutor di tirocinio" and "segreteria, tirocinio universitario" are jobs
+INTERNS = r"\btirocini?\s+(?:formativ|extra.?curricular|non\s+curricular|di\s+inclusione|di\s+orientamento)|attivazione\s+di\s+(?:n\.?\s*\d+\s+)?tirocini"
 
 # Calls that aren't one job (Google: JobPosting "must only be used on pages that contain a single job posting"):
 # lists of professionals, appointments to boards, PhD places and grants, several profiles at once.
 # They keep their page, just without JobPosting. Graduatorie for one profile are hiring and stay.
 NOT_A_JOB = re.compile(
     r"\b(formazione|istituzione|costituzione|aggiornamento|creazione|predisposizione)\s+(di\s+)?(un[oa]?\s+|dell[oae]?\s*['’]?\s*|del\s+|degli\s+)?"
-    r"(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
+    r"[“\"«]?\s*(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
+    r"|\bper\s+l['’]\s*albo\b|\belenco\s+di\s+esperti\b|noleggio con conducente"  # lists of experts; taxi/NCC licences
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
     r"|collegio (dei revisori|sindacale)|component[ei] (esterni? |esperti? )?((di|della|delle) )?commission|commissari[oe]? (di|d['’]) ?esame"
     r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
-    r"|" + TRAINEES, re.I)
+    r"|" + TRAINEES + "|" + INTERNS, re.I)
 
 
 # Mobility (art. 30/34-bis): only staff of other public bodies can apply. what() names it only when it leads the title;
@@ -658,7 +661,10 @@ def is_mobility(full, w):
 NOT_OPEN = re.compile(r"\bprogression[ei]\b|\bstabilizzazion[ei]\b|\binterpell[oi]\b"
                       r"|idone\w*\s+(?:collocat\w+\s+)?(?:in|nelle|di|delle)\s+(?:vigenti\s+)?graduatori|(?:utilizzo|scorrimento|utilizzazione)\s+(?:di\s+|delle\s+|della\s+)?(?:\w+\s+){0,2}graduatori"
                       r"|personale\s+(?:\w+\s+){0,3}in\s+disponibilit|iscritti\s+(?:negli\s+elenchi\s+)?ormel"  # art. 34/34-bis: only staff on availability lists
-                      r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)", re.I)
+                      r"|riservat[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:al personale (?:dipendente|interno|di ruolo)(?![^,;]{0,30}\baltr[ei]\b)|ai dipendenti (?!del(?:l['’]|le)?\s*(?:compart|altr))(?:del|dell)|al personale precario)"
+                      r"|\bscavalco\b|\bart(?:icolo|\.)?\s*92\b(?=[^;]{0,40}?(?:267|t\.?\s?u\.?\s?e\.?\s?l))"  # art. 92 TUEL: hours on top of a post held elsewhere
+                      r"|assegnazione temporanea[^;]{0,120}?dipendent\w*\s+(?:di|delle|da)\s+(?:pp\.?\s?aa|pubbliche|altr)"
+                      r"|graduatori\w+\s+d['’]\s*istituto\W+24\s*mesi", re.I)  # AFAM: staff with 24 months of service
 
 
 # Local-authority posts outside the ordinary career (d.lgs. 267/2000): art. 90, the mayor's or council's staff, chosen
@@ -680,6 +686,8 @@ def audience(c):
         return "reserved"
     if re.search(TRAINEES, full, re.I):
         return "course"
+    if re.search(INTERNS, full, re.I):
+        return "intern"
     if ART90.search(full):
         return "staff"
     if ART110.search(full):
@@ -689,8 +697,9 @@ def audience(c):
 
 # in lists, after the ente: what a visitor most needs to know before opening the call
 AUDIENCE_TAG = {"notopen": "non aperto a tutti", "mobility": "mobilità, solo dipendenti pubblici", "reserved": "riservato alle categorie protette",
-                "course": "corso di formazione, non un posto di lavoro", "staff": "staff del sindaco, a termine", "fixed": "incarico a termine"}
-CLOSED_TO_PUBLIC = {"notopen", "mobility", "reserved", "course"}
+                "course": "corso di formazione, non un posto di lavoro", "staff": "staff del sindaco, a termine", "fixed": "incarico a termine",
+                "intern": "tirocinio, non un posto di lavoro"}
+CLOSED_TO_PUBLIC = {"notopen", "mobility", "reserved", "course", "intern"}
 
 
 def audience_note(c):
@@ -708,6 +717,9 @@ def audience_note(c):
     elif aud == "course":
         what_ = ("Dal titolo sembra la selezione dei partecipanti a un <b>corso di formazione</b>, non un posto di lavoro: "
                  "i «posti» sono i posti nel corso.")
+    elif aud == "intern":
+        what_ = ("Dal titolo sembra un avviso per <b>tirocini</b>: un periodo di formazione in un ufficio, "
+                 "non un posto di lavoro.")
     elif aud == "staff":
         what_ = ("Dal titolo sembra un incarico <b>nello staff del sindaco o della giunta</b> (art. 90 del d.lgs. 267/2000): "
                  "a tempo determinato, scelto dall'amministrazione su base fiduciaria, dura al massimo quanto il mandato.")
@@ -1734,7 +1746,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis). Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione e gli avvisi per tirocini, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis), scavalchi e assegnazioni temporanee per chi lavora già in un altro ente (art. 92 del d.lgs. 267/2000). Non segnalo nemmeno le autorizzazioni per il noleggio con conducente, che non sono un lavoro alle dipendenze dell'ente. Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
