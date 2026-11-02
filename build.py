@@ -1039,6 +1039,8 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     pk = "prov-" + slug(c["_prov"]) if c["_prov"] else None
     if pk in province_pages:
         follow.append(f'<a class="pill" href="../provincia/{pk[5:]}.html">Enti locali in provincia di {e(c["_prov"])}</a>')
+    elif c.get("_seat_prov") and "prov-" + slug(c["_seat_prov"]) in province_pages:
+        follow.append(f'<a class="pill" href="../provincia/{slug(c["_seat_prov"])}.html#altri-enti">Concorsi in provincia di {e(c["_seat_prov"])}</a>')
     for p in c["_prof"][:2]:  # the profession×region page when there is one: closer to what the reader searched
         if f"{p}/{keys[0]}" in pair_pages:
             follow.append(f'<a class="pill" href="../profilo/{p}/{keys[0]}.html">{e(PAIR_HEAD[p])} {e(in_region(keys[0]))}</a>')
@@ -1412,24 +1414,31 @@ def write_pair_pages(outdir, psets, when):
     return written
 
 
-def write_province_pages(outdir, vsets, when):
-    """provincia/<slug>.html: open calls of the local authorities (local.py) in each province. Returns the keys."""
+def write_province_pages(outdir, vsets, when, open_=()):
+    """provincia/<slug>.html: open calls of the local authorities (local.py) in each province, then those of other
+    bodies whose one known seat (sede_comune) is in it. Feeds and calendars keep the local authorities only. Returns the keys."""
     e = html.escape
     os.makedirs(os.path.join(outdir, "provincia"), exist_ok=True)
     for key, (name, sel) in vsets.items():
         rk = prov_region(sel)
         label = prov_label(key, vsets)
         comuni = sorted({c["_comune"] for c in sel if c["_comune"]})
+        others = [c for c in open_ if c.get("_seat_prov") == name]
+        n = len(sel) + len(others)
+        rest = (f"""<h2 id="altri-enti">Altri enti con sede in provincia di {e(name)}</h2>
+<p class="small">{plural(len(others), "concorso aperto", "concorsi aperti")} di aziende sanitarie, ospedali, università e altri enti la cui sede è in un comune della provincia: lo ricavo dal nome dell'ente, dal testo del bando o dal sito dell'ente. Molti hanno più sedi, anche fuori provincia: dove si lavora lo dice il bando. Questi concorsi non sono nel feed e nel calendario qui sopra, che restano dei soli enti locali.</p>
+{items_html(others, "../")}""" if others else "")
         body = f"""{layout.crumbs([(f"regione/{rk}.html", label_of(rk)), ("", f"Provincia di {name}")], 1)}
-<h1>Concorsi dei Comuni in provincia di {e(name)}</h1>
-<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU} di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina. Aggiornato il {when}.</p>
-<p class="small">Qui ci sono solo gli enti locali, di cui conosco la sede dal nome. Aziende sanitarie, ospedali, università e altri enti della zona sono nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a>. <a href="../info.html#province">Come funziona</a>.</p>
+<h1>Concorsi in provincia di {e(name)}</h1>
+<p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU} di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina{f', poi <a href="#altri-enti">{plural(len(others), "concorso", "concorsi")} di altri enti con sede in provincia</a>' if others else ""}. Aggiornato il {when}.</p>
+<p class="small">Gli enti che non hanno una sede sola, o di cui non la conosco, sono solo nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a>. <a href="../info.html#province">Come funziona</a>.</p>
 {f'<p class="small">Comuni: {e(", ".join(comuni))}.</p>' if comuni else ""}
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
-{items_html(sel, "../")}"""
-        emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi Comuni in provincia di {name}: {len(sel)} aperti",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} di Comuni ed enti locali in provincia di {name}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+{items_html(sel, "../")}
+{rest}"""
+        emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi in provincia di {name}: {n} aperti" if others else f"Concorsi Comuni in provincia di {name}: {n} aperti",
+                  f"{plural(n, 'concorso aperto', 'concorsi aperti')} {SU} in provincia di {name}: Comuni ed enti locali{', aziende sanitarie, università e altri enti con sede in provincia' if others else ''}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
     return list(vsets)
 
@@ -1886,7 +1895,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li>Non elenco le voci di inPA che non sono bandi ma avvisi su una procedura già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, esiti) né le revoche: a quelle non ci si può candidare.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
-<li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università, ministeri e gli altri enti non hanno una provincia: la loro sede non si ricava con sicurezza dal nome. Le regole sono nel codice (<code>local.py</code>).</li>
+<li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università e gli altri enti non sono nei feed e nei calendari delle province, ma la pagina di una provincia li elenca a parte («Altri enti con sede in provincia») quando conosco la loro sede: un solo capoluogo nel nome dell'ente (Università di Palermo, ASL di Lecce, non «ASL Roma 4» o «ASST Nord Milano», che sono zone), la sede scritta nel bando, o la sede di un ente che lavora in un solo comune, verificata sul suo sito. Molti di questi enti hanno più sedi: dove si lavora lo dice il bando. Le regole sono nel codice (<code>local.py</code>).</li>
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>). Quando in una regione ci sono almeno {PAIR_MIN} concorsi aperti di una professione o di un titolo di studio, hanno una pagina a sé (per esempio <a href="profilo/infermieri/veneto.html">infermieri in Veneto</a>); per le altre regioni la pagina della professione si può filtrare per regione.</li>
 <li id="discipline">Per i <b>medici</b> riconosco anche la <b>disciplina</b> (cardiologia, anestesia e rianimazione, pediatria...) dai nomi delle discipline del D.M. 30 gennaio 1998 scritti nel titolo; se il titolo dice «disciplina di …», leggo solo quel tratto, così il nome del reparto non aggiunge discipline sbagliate. Le direzioni di dipartimento o di distretto e gli elenchi per «varie discipline» restano senza disciplina. Ogni disciplina si può filtrare nella <a href="profilo/medici.html#discipline">pagina dei medici</a> e seguire con feed e calendario (per esempio <code>feed/su-misura.php?f=cardiologia</code>). Le regole sono nel codice (<code>discipline.py</code>).</li>
 <li id="titolo-di-studio">Pagine, feed e calendari per <b>titolo di studio</b> (laureati, diplomati, scuola dell'obbligo): inPA non indica il titolo richiesto, quindi lo stimo dal livello del contratto scritto nel titolo o nella descrizione. «Area degli Operatori» o «categoria B» vuol dire scuola dell'obbligo; «Area degli Istruttori», «Assistenti» o «categoria C» diploma; «Area dei Funzionari», «categoria D», dirigenti, medici, infermieri, ricercatori e docenti della secondaria laurea. Un concorso con più profili può stare in più elenchi; se il livello non è scritto, non è in nessuno. Restano fuori di proposito le commissioni d'esame, l'AFAM e gli OSS (serve una qualifica, non un titolo di studio). È una stima: i requisiti veri, compresi i titoli specifici, sono nel bando. Le regole sono nel codice (<code>studio.py</code>).</li>
@@ -1956,6 +1965,8 @@ def main(outdir):
             where = local.seat_in_text(" ".join(c["title"].split()) + "\n" + (c.get("desc") or ""), regs[0])
             c["_seat"], c["_seat_src"] = (where, "indicata nel bando") if where else (local.seat_listed(c.get("ente"), regs[0]), "sede dell’ente")
             c["_seat_src"] = c["_seat"] and c["_seat_src"]
+        # the province of a non-local body's one seat: only for the second list on province pages, never for feeds or filters
+        c["_seat_prov"] = c["_seat"] and not c["_prov"] and local.geo.place(c["_seat"], regs[0])[1] or None
         if not regs and c["_prov"]:  # "Comune di Belvedere Marittimo", area "Nazionale": the comune's region (unique names only)
             r = local.geo.place(c["_comune"] or "", "" if c["_comune"] else c["_prov"])[0]
             c["_ente_region"] = next((v for k, v in REGION_BY_SLUG.items() if r and k == slug(r)), None)
@@ -1979,7 +1990,7 @@ def main(outdir):
     pair_keys = set(write_pair_pages(outdir, psets, when))
     region_keys = write_region_pages(outdir, sets, vsets, when, pair_keys)
     profile_keys = write_profile_pages(outdir, psets, when, pair_keys)
-    province_keys = write_province_pages(outdir, vsets, when)
+    province_keys = write_province_pages(outdir, vsets, when, open_)
     indexable = write_call_pages(outdir, kept, open_, today, now, set(region_keys), set(profile_keys), set(province_keys), pair_keys)
     write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when, now, today)
     write_new_page(outdir, open_, when, today)
