@@ -459,7 +459,7 @@ def app_job(c):
     """(kind, job) for the app's card: ("Concorso a tempo determinato", "Istruttore tecnico"); either may be ""."""
     w = what.what(titles.sentence_case(" ".join(c["title"].split())), c.get("ente"))
     m = re.match(r"(Concorso|Selezione|Avviso|Mobilità|Stabilizzazione|Interpello)(?: a tempo [a-z ]+)?(?=: )", w)
-    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or freelance_job(" ".join(c["title"].split())) or afam_job(c) or military_job(c), c) or "")
+    return (m.group(0) if m else ""), (doctor_job(what.role(w) or what.other_job(" ".join(c["title"].split())) or desc_job(c) or what.role_late(w) or freelance_job(" ".join(c["title"].split())) or afam_job(c) or military_job(c) or late_job(c), c) or "")
 
 
 def doctor_job(job, c):
@@ -474,15 +474,21 @@ def doctor_job(job, c):
 DESC_TAIL = re.compile(r"(?:\s+|-)(?:[PF]\.T\.?|C\.C\.N\.L\.?|liv\b.*|area\b.*|cat\b.*|codice\b.*)$", re.I)
 
 
-def desc_job(c):
+def desc_job(c, whole=False):
     """The job named in the call's description, for titles that are only a code or an ente ("BANDO CNR N. 367.641 TEC UPE",
-    "COMUNE DI NOVE"); "" when unsure. role() only: other_job() on a description finds requirements ("dottorato di ricerca")."""
-    desc = " ".join((c.get("desc") or "").split("\n", 1)[-1].split())
-    if not desc or desc == " ".join(c["title"].split()) or what.LIST_ONLY.search(c["title"]) or re.search(r"commission", c["title"], re.I):
+    "COMUNE DI NOVE"); "" when unsure. role() only: other_job() on a description finds requirements ("dottorato di ricerca").
+    whole: last-chance reading, for the calls nothing else could name: the description's first line too (it is often the
+    sentence that names the post), the looser role_fallback()/role_late(), and an open list is no obstacle."""
+    desc = " ".join(((c.get("desc") or "") if whole else (c.get("desc") or "").split("\n", 1)[-1]).split())
+    title = c["title"]
+    if whole and what.OPEN_LIST.search(title) and not what.NOT_OPEN.search(title):
+        title = ""  # "formazione di una graduatoria di idonei": the list is the way in, not a reason to give up
+    if not desc or desc == " ".join(c["title"].split()) or what.LIST_ONLY.search(title) or re.search(r"commission", c["title"], re.I):
         return ""  # like role(): a list, a progression or a commission seat is not the job the description names
     m = what.POSTS.search(desc[:1000])  # skip the legal preamble: "Selezione ai sensi dell'art. 8 del ... di una unità ... di ricercatore"
     desc = desc[m.start():] if m and m.start() > 150 else desc
-    j = DESC_TAIL.sub("", what.role(what.what(titles.sentence_case(desc[:600]), c.get("ente"))) or "").strip(" -")
+    w = what.what(titles.sentence_case(desc[:600]), c.get("ente"))
+    j = DESC_TAIL.sub("", what.role(w) or (whole and (what.role_fallback(w) or what.role_late(w))) or "").strip(" -")
     first = j.split(" ")[0].lower() if j else ""
     if not what.STARTS.match(j) or re.search(r"[()]", j) or re.search(r"(?:ia|che)$", first) or len(j) < 4:
         return ""  # "Statistiche assegnate…", "Ingegneria civile…": a subject, not a job
@@ -536,6 +542,135 @@ def military_job(c):
         return ""
     forces = {m.lower().capitalize().replace(" m", " M").replace(" militare", " Militare") for m in FORCES.findall(text)}
     return job + (" – " + forces.pop() if len(forces) == 1 else "")
+
+
+# Last chance for the calls above could not name. Each rule says a job only where the text states it; "" when unsure.
+# Typos and spellings that hide a job from role(): "DIISTRUTTORE", "FIOSERAPISTA", "n. 1 p.to", "BANDOAFAM054", "Funzionaria/o".
+TYPOS = [(re.compile(p, re.I), r) for p, r in [
+    (r"\bDI(?=ISTRUTT)", "DI "), (r"fioserapist", "fisioterapist"), (r"\bp\.to\b", "posto"),
+    (r"(?<=[a-z])(?=AFAM\s?\d)", " "), (r"\b(\w+?)a/o\b", r"\1o"), (r"\b(\w+?)a/e\b", r"\1e"),
+]]
+# "profilo professionale di X", "nel ruolo di X", "con qualifica di X": the job after a named profile, quoted or not.
+PROFILE_OF = re.compile(r"\b(?:profilo(?:\s+professionale)?(?:\s+del\s+ruolo\s+\w+)?(?:\s+di|:)?|(?:ruolo|qualifica)(?:\s+di|:))\s+(?=[“\"«]?" + what.JOB_NOUN.pattern + ")", re.I)
+# "per n. 1 funzionario tecnico": the one post, named right after the count.
+ONE_POST = re.compile(r"\b(?:per|di)\s+n\.?\s*1\s+(?=" + what.JOB_NOUN.pattern + ")", re.I)
+# "nell'area degli operatori esperti – profilo professionale servizi tecnico manutentivi": a profile the job nouns do not know.
+AREA_NAMED_PROFILE = re.compile(r"\barea\s+(?:dei|degli|delle)\s+(" + "|".join(what.AREAS) + r")\s*[–—,-]\s*profilo\s+professionale\s+([a-zà-ù]+(?:\s+[a-zà-ù]+){0,3}?)(?=\s*[,.;(–—]|\s+a\s+tempo|\s*$)", re.I)
+# Open lists name the job in the plural: "elenco di idonei ... di istruttori direttivi tecnici".
+LIST_NOUNS = {"istruttori": "Istruttore", "funzionari": "Funzionario", "educatori": "Educatore", "specialisti": "Specialista", "collaboratori": "Collaboratore", "rilevatori": "Rilevatore"}
+LIST_ADJS = {"direttivi": "direttivo", "tecnici": "tecnico", "amministrativi": "amministrativo", "contabili": "contabile", "informatici": "informatico", "educativi": "educativo"}
+LIST_JOB = re.compile(r"\b(?:di|degli|dei|quali)\s+(" + "|".join(LIST_NOUNS) + r")((?:\s+(?:" + "|".join(LIST_ADJS) + r"|economico[- ]finanziari[oa]))*)\b", re.I)
+# Acronyms that are a whole profession's name.
+ACRONYM_JOBS = {"TSRM": "Tecnico sanitario di radiologia medica (TSRM)"}
+# Freelance doctor: "incarico libero professionale di MEDICO SPECIALIZZATO IN MEDICINA DEL LAVORO", "laureati in medicina e chirurgia, specializzazione pediatria".
+DOCTOR_FREELANCE = re.compile(r"\b(?:incaric\w+\s+libero\s*[-–]?\s*professional\w+\s+di\s+medic\w+\s+specializzat\w+\s+in|laureati\s+in\s+medicina\s+e\s+chirurgia,?\s+specializzazione(?:\s+in)?)\s+"
+                              r"([a-zà-ù]+(?:\s+(?:del|della|di|e)?\s*[a-zà-ù]+){0,2}?)(?=\s+(?:e|ed)\s+(?:sicurezza|igiene)\b|\s*[(,.]|\s+da\s|\s+per\b|$)", re.I)
+# A contract and no role: the project is the post. "contratto di collaborazione nell'ambito del Progetto", "incarico libero-professionale ... per collaborare al progetto".
+PROJECT_COLLAB = re.compile(r"\b(?:contratt[oi]|incaric(?:o|hi))\s+di\s+collaborazione\s+(?:nell['’]ambito\s+del|a\s+supporto\s+del)\s+progetto\b", re.I)
+PROJECT_FREELANCE = re.compile(r"\bincaric(?:o|hi)\s+libero\s*[-–]?\s*professional[ei]\b.{0,120}?\bper\s+collaborare\s+al\s+(?:progetto|programma)\b", re.I)
+# Self-employment, said as the title says it. Two incarichi with their own tasks ("per l'incarico n. 1 ... n. 2") stay as they are.
+AUTONOMOUS = re.compile(r"\b(?:incaric(?:o|hi)|contratt[oi])\s+(?:individual[ei]\s+)?(?:(?:di|con)\s+)?(?:contratto\s+(?:di\s+)?)?"
+                        r"(lavoro\s+autonomo|collaborazione\s+(?:esterna\s+|individuale\s+)?(?:di\s+natura\s+)?(autonoma|occasionale|coordinata\s+e\s+continuativa))", re.I)
+# Teaching and artistic posts of the conservatories and academies, which name the discipline or instrument instead of "docente".
+TEACHING_TAIL = re.compile(r"\bincarichi\s+di\s+insegnamento\b[^–—]{0,80}[–—]\s*([A-Za-zÀ-ú' ]{3,40})$", re.I)
+TEACHING_DISCIPLINE = re.compile(r"\binsegnamento\s+della\s+disciplina\s+[“\"«]([^”\"»]{3,60})[”\"»]", re.I)
+SINGLE_ROLES = [(re.compile(p, re.I), j) for p, j in [
+    (r"\bconsigliere\s+di\s+fiducia\b", "Consigliere di fiducia"),
+    (r"\baccompagnatori\s+al\s+pianoforte\b", "Accompagnatore al pianoforte"),
+    (r"\bcollaboratori\s+ed\s+esperti\s+linguistici\s+di\s+madrelingua\s+(\w+)", r"Collaboratore ed esperto linguistico (madrelingua \1)"),
+    (r"\bincarich\w+\s+(?:a|ad)\s+esperti\s*[–—-]\s*profilo\s+(\w+)", r"Esperto (profilo \1)"),
+    (r"\battivit[àa]\s+di:?\s+(corista)\b", "Corista"),
+    (r"\brivolto\s+a\s+medici\s+specializzandi\b", "Medico specializzando"),
+    (r"\bcontratti\s+di\s+collaborazione\s+di\s+docenti\s+per\s+corsi\s+propedeutici\b", "Docente – corsi propedeutici"),
+]]
+
+
+def repaired(c):
+    """The call with its title's typos and gendered spellings mended, or c itself."""
+    title = " ".join(c["title"].split())
+    for rx, r in TYPOS:
+        title = rx.sub(r, title)
+    return c if title == " ".join(c["title"].split()) else {**c, "title": title}
+
+
+def list_job(full):
+    """"Istruttore direttivo tecnico" from an open list of "istruttori direttivi tecnici"; "" when it is not one or names no such job."""
+    m = LIST_JOB.search(full)
+    if not m or not what.OPEN_LIST.search(full) or what.NOT_OPEN.search(full):
+        return ""
+    adjs = [LIST_ADJS.get(a.lower(), a.lower()) for a in m.group(2).split()]
+    return " ".join([LIST_NOUNS[m.group(1).lower()]] + adjs)
+
+
+def contract_job(c, full, text):
+    """A true but generic label for a call that states a contract and no role: "Collaboratore di progetto", "Incarico di lavoro autonomo"."""
+    if PROJECT_COLLAB.search(text):
+        return "Collaboratore di progetto"
+    if PROJECT_FREELANCE.search(text):
+        return "Collaboratore di progetto (libera professione)"
+    m = AUTONOMOUS.search(full)
+    if not m or re.search(r"incarico\s+n\.?\s*1\b|\bvari[ae]\s+disciplin", full, re.I):
+        return ""  # two incarichi with their own tasks, or a list of every discipline: not one job
+    if m.group(2):
+        return "Incarico di collaborazione " + " ".join(m.group(2).lower().split())
+    after = full[m.end():m.end() + 80]
+    return "Incarico di lavoro autonomo" + (" occasionale" if re.search(r"occasional", after, re.I) and not re.search(r"professional", after, re.I) else "")
+
+
+def late_job(c):
+    """The job of a call the title chain left without one; "" when unsure (the call then keeps its own title)."""
+    full = " ".join(c["title"].split())
+    if NOT_A_JOB.search(full) or NOT_OPEN.search(full) or what.other_job(full):
+        return ""  # no open post (a list, a progression), or the app's headline for it ("Borsa di ricerca") is the better label
+    c = repaired(c)
+    fixed = " ".join(c["title"].split())
+    w = what.what(titles.sentence_case(fixed), c.get("ente"))
+    text = fixed + " " + " ".join((c.get("desc") or "")[:700].split())
+    if fixed != full:
+        job = what.role(w) or what.role_late(w) or afam_job(c)
+        if job:
+            return re.split(r"\s+(?:per|presso)\s", job)[0]  # "Dirigente professioni sanitarie per distretti aziendali"
+    if list_job(fixed):
+        return list_job(fixed)
+    m = None if NOT_OPEN.search(fixed) else PROFILE_OF.search(fixed)
+    rest = re.split(r"\s+(?:in\s+sostituzione|per\s+(?:la\s+)?(?:sostituzione|copertura))\b", fixed[m.end():])[0] if m else ""
+    quoted = rest[:1] in "“\"«" if rest else False
+    job = m and (what.finish(rest[1:], False) if quoted else what.finish(rest, True))  # a quoted name is delimited, however long
+    if job:
+        return job
+    m = AREA_NAMED_PROFILE.search(fixed)
+    if m and not re.search(r"\d", m.group(2)):
+        return what.AREAS[m.group(1).lower()] + " – " + " ".join(m.group(2).lower().split())
+    ranks = re.sub(r"\s+(?:e|ed)\s+(?:dell['’]\s*)?elevat[ae]\s+qualificazion[ei]", "", fixed, flags=re.I)  # "Funzionari ed Elevate Qualificazioni" is one area
+    mixed = len(set(re.findall(r"\b(" + "|".join(sorted(what.AREAS, key=len, reverse=True)) + r")\b", ranks, re.I))) > 1
+    desc = " ".join((c.get("desc") or "")[:400].split())
+    if not mixed:  # with several ranks in the title, the one job the description names is not the call's
+        job = desc_job(c, whole=True)
+        if job and job.split()[0][-1] != "i" and not re.search(r"\s(?:il|la|lo|le|gli|di|del|della|a|per|e)$", job, re.I):
+            return job  # not a plural or a cut sentence ("Esperti esterni per ricoprire il")
+        m = ONE_POST.search(desc)
+        job = m and len(full.split()) <= 8 and what.finish(desc[m.end():], True)  # the description of a title that is only a code or an ente
+        if job:
+            return job
+        job = len(full.split()) <= 2 and what.other_job(desc[:300])
+        if job:
+            return job
+    for acro, name in ACRONYM_JOBS.items():
+        if re.search(r"\bposti?\s+di\s+" + acro + r"\b", fixed):
+            return name
+    for rx, j in SINGLE_ROLES:
+        m = rx.search(text)
+        if m:
+            return m.expand(j)
+    m = DOCTOR_FREELANCE.search(fixed)
+    if m:
+        return f"Medico specializzato in {m.group(1).lower()} (libera professione)"
+    m = TEACHING_TAIL.search(fixed) or TEACHING_DISCIPLINE.search(fixed)
+    if m:
+        subject = m.group(1).strip()
+        subject = subject.lower() if m.re is TEACHING_TAIL else subject  # an instrument; a discipline's own name keeps its capitals
+        return "Docente – " + subject[:1].upper() + subject[1:]
+    return contract_job(c, fixed, text)
 
 
 def write_app_data(outdir, open_, latest):
@@ -620,6 +755,8 @@ INTERNS = r"\btirocini?\s+(?:formativ|extra.?curricular|non\s+curricular|di\s+in
 # Calls that aren't one job (Google: JobPosting "must only be used on pages that contain a single job posting"):
 # lists of professionals, appointments to boards, PhD places and grants, several profiles at once.
 # They keep their page, just without JobPosting. Graduatorie for one profile are hiring and stay.
+# "elench" matches only the plural "elenchi": a list for one profile ("elenco di idonei", "elenco di infermieri
+# in libera professione") is hiring and keeps JobPosting; lists of experts and albi don't (checked 2 Nov 2026).
 NOT_A_JOB = re.compile(
     r"\b(formazione|istituzione|costituzione|aggiornamento|creazione|predisposizione)\s+(di\s+)?(un[oa]?\s+|dell[oae]?\s*['’]?\s*|del\s+|degli\s+)?"
     r"[“\"«]?\s*(nuov[oa]\s+)?(elench(?!i di idonei)|albo|albi|short[- ]?list|bacino|banca dati)"
@@ -759,7 +896,9 @@ def job_posting(c, url):
     sc = what.other_job(full) or ""  # of other_job's headlines only the director's, the manager's and the research contracts' are one job
     sc = sc if sc.startswith(("Direttore", "Dirigente", "Incarico", "Contratto")) else ""
     w = what.what(titles.sentence_case(full), c.get("ente"))
-    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c), c)
+    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c) or late_job(c), c)
+    if job and NOT_A_JOB.search(job):  # a code-only title ("NIV2026") whose description names a board seat
+        return ""
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
