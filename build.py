@@ -1456,6 +1456,10 @@ FIELDS = [  # (column, description) for dati/concorsi-aperti.csv, documented on 
     ("sito_ente", "Sito dell'amministrazione, come indicato su inPA"),
     ("discipline_mediche", "Solo per i medici: discipline dedotte dal titolo (nomi del D.M. 30 gennaio 1998), separate da «|»: una stima, non un dato di inPA; vuoto se non riconosciuta"),
     ("url_candidatura", "Dove si presenta la domanda secondo il pulsante «Invia la tua candidatura» di inPA: il sito dell'ente quando inPA rimanda lì (più indirizzi separati da «|», uno per profilo), altrimenti la scheda inPA"),
+    ("sede_comune", "Comune dove si lavora, quando se ne ricava uno solo (vuoto altrimenti); come lo si ricava lo dice sede_fonte. Una stima: fa fede il bando"),
+    ("sede_fonte", "Da dove viene sede_comune: «comune dell’ente» (l'ente è quel Comune); «indicata nel bando» (il testo nomina la sede, per esempio «sede di Lonigo»); «sede dell’ente» (un ente che lavora in un solo comune, verificato sul suo sito); «città nel nome dell’ente» (Università di Palermo, ASL di Lecce, Provincia di Lucca: è la sede principale, ma si può lavorare anche altrove in provincia)"),
+    ("sede_sigla_provincia", "Sigla della provincia di sede_comune (per esempio TO), dall'elenco ISTAT dei comuni"),
+    ("sede_codice_istat", "Codice ISTAT a sei cifre di sede_comune (per esempio 001272), dall'elenco ISTAT dei comuni"),
 ]
 
 
@@ -1478,10 +1482,15 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
     ("url_gu", "Avviso nella Gazzetta Ufficiale: fa fede questo"),
     ("url_pagina", "Pagina del concorso su ossian.cloud"),
     ("discipline_mediche", "Solo per i medici: discipline dedotte dal titolo, separate da «|»: una stima"),
+    ("sede_comune", "Comune dove si lavora, quando se ne ricava uno solo (vuoto altrimenti); come lo si ricava lo dice sede_fonte. Una stima: fa fede il bando"),
+    ("sede_fonte", "Da dove viene sede_comune: «comune dell’ente» (l'ente è quel Comune); «indicata nel bando» (il testo nomina la sede, per esempio «sede di Lonigo»); «sede dell’ente» (un ente che lavora in un solo comune, verificato sul suo sito); «città nel nome dell’ente» (Università di Palermo, ASL di Lecce, Provincia di Lucca: è la sede principale, ma si può lavorare anche altrove in provincia)"),
+    ("sede_sigla_provincia", "Sigla della provincia di sede_comune (per esempio TO), dall'elenco ISTAT dei comuni"),
+    ("sede_codice_istat", "Codice ISTAT a sei cifre di sede_comune (per esempio 001272), dall'elenco ISTAT dei comuni"),
 ]
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-02", "Aggiunte in fondo a entrambi i file le colonne <code>sede_comune</code>, <code>sede_fonte</code>, <code>sede_sigla_provincia</code> e <code>sede_codice_istat</code>: il comune dove si lavora, quando se ne ricava uno solo, con il codice ISTAT per unirlo ad altri dati. Le colonne esistenti non cambiano."),
     ("2026-11-01", "Aggiunta in fondo la colonna <code>url_candidatura</code>: per circa un concorso su quattro inPA manda a presentare la domanda sul sito dell'ente (per esempio PICA per le università), non sul portale inPA."),
     ("2026-10-25", "<code>datapackage.json</code>: <code>apertura</code>, <code>scadenza</code> e <code>aggiornato_inpa</code> hanno ora il tipo data e ora (le prime due ora di Roma, formato <code>%Y-%m-%dT%H:%M</code>). Nessuna colonna cambiata."),
     ("2026-10-24", "Tolte circa 110 righe che non erano bandi ma avvisi su procedure già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, quasi tutte degli Uffici Scolastici Regionali). Le colonne non cambiano."),
@@ -1537,6 +1546,15 @@ def write_datapackage(outdir, files, latest):
     os.replace(path + ".tmp", path)
 
 
+def sede_fields(c):
+    """The four sede_* CSV columns: the one comune the work is in, as JobPosting.addressLocality has it."""
+    where = c.get("_comune") or c.get("_seat") or ""
+    regs = regions_of(c)
+    code, sigla = local.codes_of(where, regs[0]) if where and len(regs) == 1 else ("", "")
+    src = c.get("_comune") and "comune dell’ente" or c.get("_seat") and (c.get("_seat_src") or "città nel nome dell’ente")
+    return {"sede_comune": where, "sede_fonte": src or "", "sede_sigla_provincia": sigla, "sede_codice_istat": code}
+
+
 def gu_dataset_row(c):
     return {"id": c["id"], "codice_gu": c.get("gu_code") or "", "tipo": c.get("gu_type") or "",
             "titolo": " ".join(c["title"].split()), "ente": " ".join((c.get("ente") or "").split()),
@@ -1547,7 +1565,7 @@ def gu_dataset_row(c):
             "pubblicazione": (c.get("opens") or "")[:10], "scadenza": c["closes"][:10] if valid_closes(c) else "",
             "numero_gu": c.get("gu_issue") or "", "url_gu": c.get("gu_url") or "",
             "url_pagina": f"{BASE}/{page_rel(c)}",
-            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"])}
+            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"]), **sede_fields(c)}
 
 
 def num(v):
@@ -1567,7 +1585,7 @@ def dataset_row(c):
             "retribuzione_min": num(c.get("pay_min")), "retribuzione_max": num(c.get("pay_max")),
             "aggiornato_inpa": c["lastmod"], "url_inpa": INPA_PAGE.format(c["id"]),
             "url_pagina": f"{BASE}/{page_rel(c)}", "sito_ente": c.get("pa_url") or "",
-            "url_candidatura": "|".join(c.get("apply") or []) or INPA_PAGE.format(c["id"])}
+            "url_candidatura": "|".join(c.get("apply") or []) or INPA_PAGE.format(c["id"]), **sede_fields(c)}
 
 
 def write_dataset(outdir, open_, latest, when):

@@ -53,12 +53,12 @@ CAPITALS = _capitals()
 def seat_of(ente, region):
     """The city in an ente's name, for JobPosting.addressLocality only (not for province pages): exactly one
     provincial capital of the call's own region, as whole words ("Università degli Studi di Palermo", "ASL Roma 2").
-    None when the name has none or several ("Camera di commercio Milano Monza Brianza Lodi"), or names an area ("ASST Nord Milano")."""
+    None when the name has none or several ("Camera di commercio Milano Monza Brianza Lodi"), or names an area ("ASST Nord Milano", "ASL Napoli 3 Sud", which is not in Napoli)."""
     words = f" {geo.norm(ente)} "
     for r in CAPITALS:  # "Friuli Venezia Giulia" is not Venezia
         words = words.replace(f" {geo.norm(r)} ", " ")
     found = {d for n, d in CAPITALS.get(region, {}).items() if f" {n} " in words
-             and not re.search(rf"\b(?:NORD|SUD|EST|OVEST|CENTRO) {n}\b|\b{n} (?:NORD|SUD|EST|OVEST|CENTRO)\b", words)}  # "Nord Milano": an area
+             and not re.search(rf"\b(?:NORD|SUD|EST|OVEST|CENTRO) {n}\b|\b{n} (?:NORD|SUD|EST|OVEST|CENTRO|\d+)\b", words)}  # "Nord Milano", "ASL Roma 4": areas
     return found.pop() if len(found) == 1 else None
 
 
@@ -109,3 +109,26 @@ SEATS = _seats()
 
 def seat_listed(ente, region):
     return SEATS.get((geo.norm(" ".join((ente or "").split())), region))
+
+
+def _codes():
+    """{(normalized comune, region): (ISTAT code, province sigla)}; a name twice in one region maps to None."""
+    out = {}
+    with open(geo.REF, encoding="latin-1", newline="") as f:
+        rows = csv.reader(f, delimiter=";")
+        next(rows)
+        for r in rows:
+            if len(r) > 14:
+                region = r[10].split("/")[0].strip()
+                for name in {r[5], r[6]}:
+                    k = (geo.norm(name), region)
+                    out[k] = None if k in out and out[k] != (r[4].strip(), r[14].strip()) else (r[4].strip(), r[14].strip())
+    return out
+
+
+CODES = _codes()
+
+
+def codes_of(comune, region):
+    """-> (ISTAT code, province sigla) of a comune of the call's region, or ("", "") when unknown or ambiguous."""
+    return CODES.get((geo.norm(comune), region)) or ("", "")
