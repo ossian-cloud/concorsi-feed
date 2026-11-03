@@ -712,10 +712,15 @@ def emit_page(outdir, rel, title, description, body, active="", depth=0, extra_h
                              canonical(rel)))
 
 
-def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False):
+FRESH_DAYS = 3  # «nuovo» in lists: applications opened today or in the two days before
+FRESH = ("", "")  # (first, last) local ISO day of FRESH_DAYS, set by main()
+
+
+def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False, fresh=True):
     """<li> rows: short title linking to our call page, then ente, area, posts and deadline.
     tag: data-r with the call's group keys, for the region filter on profession pages (REGION_FILTER),
-    and data-d with its medical disciplines (discipline.py), for the discipline filter on medici.html."""
+    and data-d with its medical disciplines (discipline.py), for the discipline filter on medici.html.
+    fresh: a «nuovo» tag on calls opened in the last FRESH_DAYS days (not on nuovi.html, which is all new)."""
     e = html.escape
     lis = []
     for c in calls:
@@ -724,7 +729,8 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag
         if tag and c["_disc"]:
             data += f' data-d="{" ".join(c["_disc"])}"'
         title = f'{short_title(c, 105 - len(c["_note"]))} ({c["_note"]})' if c.get("_note") else short_title(c, 110)
-        lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(title)}</a>'
+        new = ' <span class="tag" title="candidature aperte da al massimo 3 giorni">nuovo</span>' if fresh and FRESH[0] <= posted(c)[:10] <= FRESH[1] else ""
+        lis.append(f'<li{data}><a href="{prefix}{page_rel(c)}">{e(title)}</a>{new}'
                    f'<small>{e(" · ".join(m for m in meta if m))}</small></li>')
     return '<ul class="items">\n' + "\n".join(lis) + "\n</ul>" if lis else f"<p>{empty}</p>"
 
@@ -1287,7 +1293,7 @@ def write_new_page(outdir, open_, when, today):
     for d, cs in by_day.items():
         dd = dt.date.fromisoformat(d)
         name = "Oggi" if dd == today else "Ieri" if dd == today - dt.timedelta(days=1) else WEEKDAYS[dd.weekday()].capitalize()
-        sections.append(f'<section class="day">\n<h2>{name}, {dd.day} {MONTHS[dd.month - 1]} <small>({len(cs)})</small></h2>\n{items_html(cs, tag=True)}\n</section>')
+        sections.append(f'<section class="day">\n<h2>{name}, {dd.day} {MONTHS[dd.month - 1]} <small>({len(cs)})</small></h2>\n{items_html(cs, tag=True, fresh=False)}\n</section>')
     body = f"""{layout.crumbs([("", "Nuovi")], 0)}
 <h1>Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni</h1>
 <p class="lead">{plural(len(sel), "concorso", "concorsi")} {SU} aperti negli ultimi {NEW_DAYS} giorni e non ancora scaduti, dal più recente. Aggiornato il {when}.</p>
@@ -1756,7 +1762,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 {items_html(soon, "", "Nessun concorso scade nei prossimi 7 giorni.")}
 
 <h2>Ultimi pubblicati</h2>
-{items_html(newest)}
+{items_html(newest, fresh=False)}
 <p><a href="nuovi.html">Tutti i nuovi degli ultimi giorni, giorno per giorno e per regione</a></p>
 <p class="small">Aggiornato il {when}.</p>"""
     emit_page(outdir, "index.html", f"Concorsi pubblici aperti ({SRC}) in feed e calendario · ossian.cloud",
@@ -1977,6 +1983,8 @@ def main(outdir):
     calls = {k: c for k, c in calls.items() if not re.match(r"\s*procedura concorsuale non attiva\s*$", c["title"], re.I)}
     now  = dt.datetime.now(ROME).replace(tzinfo=None)  # Rome wall clock, comparable with the data's local times
     today = now.date()
+    global FRESH
+    FRESH = ((today - dt.timedelta(days=FRESH_DAYS - 1)).isoformat(), today.isoformat())
     open_, kept = classify(calls, now)
     for k, note in title_notes(kept, now).items():  # in page titles and lists
         calls[k]["_note"] = note
