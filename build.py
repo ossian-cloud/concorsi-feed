@@ -402,6 +402,7 @@ def write_feeds(outdir, open_, latest):
     psets = {f"profilo-{p}": (profili.LABEL[p], [c for c in open_ if p in c["_prof"]]) for p in profili.LABEL}
     # education levels (studio.py) reuse the profession machinery: profilo/<level>.html, feed/profilo-<level>.xml, f=<level>
     psets.update({f"profilo-{s}": (studio.LABEL[s], [c for c in open_ if s in c["_studio"]]) for s in studio.LABEL})
+    psets.update({f"profilo-{w}": (WHO[w], [c for c in open_ if w in c["_who"]]) for w in WHO})
     vsets = {}
     for c in open_:
         if c["_prov"]:
@@ -432,13 +433,13 @@ def write_custom(outdir, open_, latest):
     One row per open call, newest first, with the filter fields and the ready-made entry and event."""
     rows = []
     for c in sorted(open_, key=lambda c: (c["lastmod"], posted(c), c["id"]), reverse=True):
-        rows.append({"r": keys_of(c), "f": c["_prof"] + c["_studio"] + c["_disc"], "p": slug(c["_prov"]) if c["_prov"] else "",
+        rows.append({"r": keys_of(c), "f": c["_prof"] + c["_studio"] + c["_who"] + c["_disc"], "p": slug(c["_prov"]) if c["_prov"] else "",
                      "t": " ".join(fold(f'{c["title"]} {c.get("ente") or ""}').split()),
                      "x": entry_xml(entry(c)), "e": event_text(event(c)) if valid_closes(c) else "",
                      "w": [short_title(c, 110), c["id"], ente_short(c, 60), c["closes"] if valid_closes(c) else ""]})
     data = {"updated": latest, "base": BASE, "rights": RIGHTS,
             "subtitle": f"Concorsi aperti {SU}, filtrati su misura. " + SOURCE + ". " + DISCLAIMER,
-            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL, **{k: f"Medici: {v}" for k, v in discipline.LABEL.items()}},
+            "regions": {k: label_of(k) for k in [slug(r) for r in REGIONS] + [NAZ]}, "profiles": {**profili.LABEL, **studio.LABEL, **WHO, **{k: f"Medici: {v}" for k, v in discipline.LABEL.items()}},
             "disciplines": list(discipline.LABEL),
             "provinces": dict(sorted({slug(c["_prov"]): c["_prov"] for c in open_ if c["_prov"]}.items())), "rows": rows}
     tmp = os.path.join(outdir, "feed", "su-misura.json.gz.tmp")
@@ -793,6 +794,21 @@ def is_reserved(full):
                 and not re.search(r"(?:prioritariamente|di cui (?:n\.\s*)?\d+\s+post[oi])\s*$", full[:m.start()], re.I))
 
 
+# profilo/categorie-protette.html: calls wholly reserved to the L. 68/1999 protected categories, and calls whose title says
+# that some posts are reserved to them. From the title only: descriptions also say «non opera la riserva della legge 68».
+L68 = (r"(?:l(?:egge|\.)?\s*(?:n\.?\s*)?68(?:\s*/\s*(?:19)?99|\s+del\s+1[23]\.?\s*(?:marzo|03)\.?\s*1999|\b)|categorie protette"
+       r"|categorie di cui all['’]\s*art\w*\.?\s*(?:1|18)\b|soggetti disabili|persone con disabilit|lavoratori disabili)")
+PART_RESERVE = re.compile(r"riserv\w*[^.;]{0,120}?" + L68 + "|" + L68 + r"[^.;]{0,60}?riserv", re.I)
+WHO = {"categorie-protette": "Categorie protette"}
+WHO_HEAD = {"categorie-protette": "Concorsi riservati alle categorie protette"}
+WHO_PHRASE = {"categorie-protette": "riservati, in tutto o in parte, alle categorie protette (legge 68/1999)"}
+
+
+def who_of(c):
+    full = " ".join(c["title"].split())
+    return ["categorie-protette"] if is_reserved(full) or PART_RESERVE.search(full) else []
+
+
 def is_mobility(full, w):
     return w.startswith("Mobilità") or (bool(MOBILITY.search(full)) and not re.search(r"\bconcors", full, re.I))
 
@@ -1057,6 +1073,9 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
             follow.append(f'<a class="pill" href="../profilo/{s}/{keys[0]}.html">Concorsi {e(studio.PHRASE[s])} {e(in_region(keys[0]))}</a>')
         elif f"profilo-{s}" in profile_pages:
             follow.append(f'<a class="pill" href="../profilo/{s}.html">Concorsi {e(studio.PHRASE[s])}</a>')
+    for w in c["_who"]:
+        if f"profilo-{w}" in profile_pages:
+            follow.append(f'<a class="pill" href="../profilo/{w}.html#{keys[0]}">{e(WHO_HEAD[w])} {e(in_region(keys[0]))}</a>')
     if c["_prof"]:
         p = c["_prof"][0]
         follow.append(f'<a class="pill" href="../{e(custom(p, keys[0]))}"><span aria-hidden="true">📡</span> Feed: {e(profili.LABEL[p].lower())}, {e(label_of(keys[0]))}</a>')
@@ -1204,6 +1223,10 @@ def write_region_pages(outdir, sets, vsets, when, pair_keys=()):
         if any(levels.values()):
             note += ('<p class="small">Per titolo di studio: '
                      + " · ".join(f'<a href="{pair_link(s, key, pair_keys, "../")}">{e(studio.LABEL[s])}</a> {n}' for s, n in levels.items() if n) + ".</p>\n")
+        for w in WHO:
+            n = sum(w in c["_who"] for c in sel)
+            if n:
+                note += f'<p class="small"><a href="../profilo/{w}.html#{key}">{e(WHO_HEAD[w])}</a> {n}.</p>\n'
         where = "Concorsi pubblici nazionali e di altre aree" if key == NAZ else f"Concorsi pubblici {in_region(key)}"
         body = f"""{layout.crumbs([("", label)], 1)}
 <h1>{e(where)}</h1>
@@ -1308,6 +1331,11 @@ def write_new_page(outdir, open_, when, today):
               body, "./", 0, '\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · Tutta Italia" href="feed/italia.xml">')
 
 
+WHO_NOTE = ("Ci sono i bandi <b>interamente riservati</b> alle persone iscritte negli elenchi del collocamento mirato (legge 68/1999: "
+            "persone con disabilità, art. 1; orfani, coniugi superstiti, profughi e le altre categorie dell'art. 18), compresi gli avviamenti numerici e le "
+            "mobilità riservate, e i concorsi aperti a tutti che nel titolo dicono di <b>riservare alcuni posti</b> a queste categorie. Li riconosco dal titolo: "
+            "molti concorsi applicano la riserva senza scriverlo lì, quindi qui ne mancano. Chi può partecipare, e con quali documenti, lo dice il bando. "
+            '<a href="../info.html#categorie-protette">Come li riconosco</a>.')
 LEVEL_NOTE = "inPA non indica il titolo di studio richiesto: lo stimo dal livello del contratto nel titolo o nella descrizione (per esempio «Area degli Istruttori» o «categoria C» = diploma), quindi qualche concorso può mancare o essere fuori posto. I requisiti veri sono nel bando: controllali sempre."
 
 
@@ -1322,9 +1350,10 @@ def write_profile_pages(outdir, psets, when, pair_keys=()):
         name = key[len("profilo-"):]
         level = name in studio.LABEL
         head = f"{PAIR_HEAD[name]} in tutta Italia"
+        phrase = studio.PHRASE[name] if level else WHO_PHRASE.get(name, "per " + label.lower())
         also = ' Chi ha il diploma può partecipare anche ai concorsi <a href="scuola-obbligo.html">con la scuola dell\'obbligo</a>.' if name == "diplomati" else ""
-        note = (f'{LEVEL_NOTE}{also} <a href="../info.html#titolo-di-studio">Come lo stimo</a>.'
-                if level else 'inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. Per non perderne, segui anche la tua regione. <a href="../info.html#professioni">Come la riconosco</a>.')
+        note = (f'{LEVEL_NOTE}{also} <a href="../info.html#titolo-di-studio">Come lo stimo</a>.' if level else WHO_NOTE if name in WHO
+                else 'inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. Per non perderne, segui anche la tua regione. <a href="../info.html#professioni">Come la riconosco</a>.')
         by_region = {}
         for c in sel:
             for k in keys_of(c):
@@ -1352,11 +1381,11 @@ def write_profile_pages(outdir, psets, when, pair_keys=()):
 <a href="#">Mostra tutti</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
 <p class="small">{note}</p>
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
-<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#professione">Come si usano?</a></div>
+<a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#{"categorie-protette" if name in WHO else "professione"}">Come si usano?</a></div>
 {items_html(sel, "../", tag=True)}
 {REGION_FILTER}"""
         emit_page(outdir, f"profilo/{name}.html", f"{PAIR_HEAD[name]}: {plural(len(sel), 'aperto', 'aperti')} in tutta Italia",
-                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} {studio.PHRASE[name] if level else 'per ' + label.lower()}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
+                  f"{plural(len(sel), 'concorso aperto', 'concorsi aperti')} {SU} {phrase}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')
         written.append(key)
     return written
@@ -1372,7 +1401,7 @@ PAIR_HEAD = {"amministrativi": "Concorsi per amministrativi e contabili", "tecni
              "informatici": "Concorsi per informatici", "ricerca": "Posti, assegni e borse di ricerca",
              "operai-autisti": "Concorsi per operai, autisti e manutentori", "dirigenti": "Concorsi per dirigenti e segretari comunali",
              "cultura": "Concorsi in biblioteche, archivi e musei", "incarichi-esterni": "Incarichi esterni, consulenze e OIV",
-             "avvocati": "Concorsi per avvocati", **{s: f"Concorsi {studio.PHRASE[s]}" for s in studio.LABEL}}
+             "avvocati": "Concorsi per avvocati", **{s: f"Concorsi {studio.PHRASE[s]}" for s in studio.LABEL}, **WHO_HEAD}
 
 
 IN_REGION = {"lazio": "nel Lazio", "marche": "nelle Marche"}  # "in" for the others
@@ -1395,6 +1424,8 @@ def write_pair_pages(outdir, psets, when):
     for key, (label, sel) in psets.items():
         name = key[len("profilo-"):]
         level = name in studio.LABEL
+        if name in WHO:
+            continue
         for r in [slug(x) for x in REGIONS]:
             rsel = [c for c in sel if r in keys_of(c)]
             if len(rsel) < PAIR_MIN:
@@ -1725,8 +1756,10 @@ def write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when
                         for k in [slug(r) for r in REGIONS] + [NAZ] if k in region_keys)
     def plinks(keys):
         return "\n".join(f'<li><a href="profilo/{k[len("profilo-"):]}.html">{e(psets[k][0])}</a><small>{len(psets[k][1])}</small></li>' for k in keys)
-    profs = plinks(k for k in profile_keys if k[len("profilo-"):] not in studio.LABEL)
+    profs = plinks(k for k in profile_keys if k[len("profilo-"):] not in studio.LABEL and k[len("profilo-"):] not in WHO)
     levels = plinks(k for k in profile_keys if k[len("profilo-"):] in studio.LABEL)
+    who = "".join(f'<p><a href="profilo/{w}.html">{e(WHO_HEAD[w])}</a> ({len(psets["profilo-" + w][1])}): i bandi riservati a chi è iscritto al collocamento mirato (legge 68/1999) e i concorsi che riservano alcuni posti a queste persone.</p>\n'
+                  for w in WHO if "profilo-" + w in profile_keys)
     body = f"""<h1>Concorsi pubblici aperti, in feed e calendario</h1>
 <p class="lead">I concorsi e le selezioni delle pubbliche amministrazioni italiane pubblicati su
 <a href="https://www.inpa.gov.it/">inPA</a>, il portale del reclutamento del Dipartimento della Funzione Pubblica,{GU_LEAD if GU_ON else ""}
@@ -1757,7 +1790,7 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
 {levels}
 </ul>
 <p class="small">Il titolo di studio lo stimo dal livello del contratto (Operatori, Istruttori, Funzionari…): controlla sempre i requisiti nel bando. <a href="info.html#titolo-di-studio">Come funziona</a>.</p>
-
+{"<h2>Categorie protette</h2>" + chr(10) + who if who else ""}
 <h2>In scadenza nei prossimi 7 giorni</h2>
 {items_html(soon, "", "Nessun concorso scade nei prossimi 7 giorni.")}
 
@@ -1774,11 +1807,13 @@ Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>
                 f'<td><a href="calendario/{k}.ics">calendario</a></td><td><a href="{webcal(f"calendario/{k}.ics")}">aggiungi</a></td></tr>')
 
     rows = "\n".join(row(k, label_of(k)) for k in [slug(r) for r in REGIONS] + [NAZ])
-    prows = "\n".join(row(k, psets[k][0]) for k in psets if k[len("profilo-"):] not in studio.LABEL)
+    prows = "\n".join(row(k, psets[k][0]) for k in psets if k[len("profilo-"):] not in studio.LABEL and k[len("profilo-"):] not in WHO)
+    wrows = "\n".join(row("profilo-" + w, WHO_HEAD[w]) for w in WHO)
     trows = "\n".join(row(k, psets[k][0]) for k in psets if k[len("profilo-"):] in studio.LABEL)
     vrows = "\n".join(row(k, vsets[k][0]) for k in sorted(vsets, key=lambda k: (label_of(prov_region(vsets[k][1])), k)))
-    popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items() if k[len("profilo-"):] not in studio.LABEL)
+    popts = "\n".join(f'<option value="{k[len("profilo-"):]}">{e(lab)}</option>' for k, (lab, _) in psets.items() if k[len("profilo-"):] not in studio.LABEL and k[len("profilo-"):] not in WHO)
     popts += '\n<optgroup label="Titolo di studio (stima)">' + "".join(f'<option value="{k}">{e(lab)}</option>' for k, lab in studio.LABEL.items()) + "</optgroup>"
+    popts += '\n<optgroup label="Riservati">' + "".join(f'<option value="{k}">{e(WHO_HEAD[k])}</option>' for k in WHO) + "</optgroup>"
     popts += '\n<optgroup label="Medici, per disciplina">' + "".join(f'<option value="{k}">{e(lab)}</option>' for k, lab in sorted(discipline.LABEL.items(), key=lambda x: x[1])) + "</optgroup>"
     ropts = "\n".join(f'<option value="{k}">{e(label_of(k))}</option>' for k in [slug(r) for r in REGIONS] + [NAZ])
     vopts = "\n".join(f'<option value="{k[5:]}">{e(lab)}</option>' for k, (lab, _) in vsets.items())
@@ -1860,6 +1895,12 @@ La professione la deduco dal titolo (<a href="info.html#professioni">come</a>): 
 {trows}
 </tbody></table></div>
 
+<h2 id="categorie-protette">Categorie protette</h2>
+<p>I concorsi riservati, in tutto o in parte, a chi è iscritto negli elenchi del collocamento mirato (legge 68/1999), riconosciuti dal titolo: qualcuno manca. <a href="info.html#categorie-protette">Come funziona</a>.</p>
+<div class="table"><table><thead><tr><th>Gruppo</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
+{wrows}
+</tbody></table></div>
+
 <h2 id="provincia">Per provincia: Comuni ed enti locali</h2>
 <p>I concorsi di Comuni, Province e Città metropolitane, di cui conosco la sede dal nome dell'ente. Gli altri enti (aziende sanitarie, università, ministeri) restano solo nella regione. <a href="info.html#province">Come funziona</a>.</p>
 <div class="table"><table><thead><tr><th>Provincia</th><th>Aperti</th><th>Feed</th><th>Calendario</th><th>iPhone e Mac</th></tr></thead><tbody>
@@ -1903,6 +1944,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
 <li id="province">Pagine, feed e calendari per <b>provincia</b>, solo per gli enti locali: se l'ente si chiama «Comune di…», «Provincia di…» o «Città metropolitana di…», cerco il nome nell'elenco dei comuni dell'ISTAT, dentro la regione indicata da inPA, e ne ricavo la provincia. Se il nome è ambiguo o non lo trovo, il concorso resta solo nella regione. Aziende sanitarie, ospedali, università e gli altri enti non sono nei feed e nei calendari delle province, ma la pagina di una provincia li elenca a parte («Altri enti con sede in provincia») quando conosco la loro sede: un solo capoluogo nel nome dell'ente (Università di Palermo, ASL di Lecce, non «ASL Roma 4» o «ASST Nord Milano», che sono zone), la sede scritta nel bando, o la sede di un ente che lavora in un solo comune, verificata sul suo sito. Molti di questi enti hanno più sedi: dove si lavora lo dice il bando. Le regole sono nel codice (<code>local.py</code>).</li>
 <li id="professioni">Feed, calendari e pagine per <b>professione</b> (infermieri, polizia locale, tecnici...): inPA non indica la professione, quindi la deduco da parole chiave nel titolo del concorso (per esempio «infermier», «polizia locale», «assistente sociale»). Un concorso può stare in più professioni o in nessuna, e qualcuno può finire fuori posto: per non perdere nulla, segui la tua regione. Le regole sono nel codice (<code>profili.py</code>). Quando in una regione ci sono almeno {PAIR_MIN} concorsi aperti di una professione o di un titolo di studio, hanno una pagina a sé (per esempio <a href="profilo/infermieri/veneto.html">infermieri in Veneto</a>); per le altre regioni la pagina della professione si può filtrare per regione.</li>
+<li id="categorie-protette">La pagina dei <a href="profilo/categorie-protette.html">concorsi riservati alle categorie protette</a> raccoglie i bandi interamente riservati a chi è iscritto negli elenchi del collocamento mirato (legge 68/1999: persone con disabilità, art. 1; orfani, coniugi superstiti, profughi e le altre categorie dell'art. 18), compresi gli avviamenti numerici e le mobilità riservate al personale disabile, e i concorsi aperti a tutti che nel titolo dicono di riservare alcuni posti a queste categorie. Li riconosco solo dal titolo: la riserva di legge vale anche per molti concorsi che nel titolo non la nominano, e le descrizioni dicono spesso il contrario («non opera la riserva»), quindi non le uso. Chi può partecipare, e come dimostrarlo, lo dice il bando. Si segue con feed e calendario, anche per una sola regione (<code>feed/su-misura.php?f=categorie-protette&amp;r=puglia</code>).</li>
 <li id="discipline">Per i <b>medici</b> riconosco anche la <b>disciplina</b> (cardiologia, anestesia e rianimazione, pediatria...) dai nomi delle discipline del D.M. 30 gennaio 1998 scritti nel titolo; se il titolo dice «disciplina di …», leggo solo quel tratto, così il nome del reparto non aggiunge discipline sbagliate. Le direzioni di dipartimento o di distretto e gli elenchi per «varie discipline» restano senza disciplina. Ogni disciplina si può filtrare nella <a href="profilo/medici.html#discipline">pagina dei medici</a> e seguire con feed e calendario (per esempio <code>feed/su-misura.php?f=cardiologia</code>). Le regole sono nel codice (<code>discipline.py</code>).</li>
 <li id="titolo-di-studio">Pagine, feed e calendari per <b>titolo di studio</b> (laureati, diplomati, scuola dell'obbligo): inPA non indica il titolo richiesto, quindi lo stimo dal livello del contratto scritto nel titolo o nella descrizione. «Area degli Operatori» o «categoria B» vuol dire scuola dell'obbligo; «Area degli Istruttori», «Assistenti» o «categoria C» diploma; «Area dei Funzionari», «categoria D», dirigenti, medici, infermieri, ricercatori e docenti della secondaria laurea. Un concorso con più profili può stare in più elenchi; se il livello non è scritto, non è in nessuno. Restano fuori di proposito le commissioni d'esame, l'AFAM e gli OSS (serve una qualifica, non un titolo di studio). È una stima: i requisiti veri, compresi i titoli specifici, sono nel bando. Le regole sono nel codice (<code>studio.py</code>).</li>
 <li>Aggiornamento automatico: le pagine si rigenerano ogni 4 ore. I concorsi nuovi però arrivano una volta al giorno: leggo l'elenco pubblico dei bandi di inPA (la sua sitemap), che inPA rigenera ogni notte verso le 2. Un bando pubblicato su inPA in giornata compare qui di solito la notte successiva: per le novità dell'ultima ora conta inPA.</li>
@@ -1962,6 +2004,7 @@ def main(outdir):
         c["title"], c["desc"] = names.redact(c["title"]), names.redact(c.get("desc"))
         c["_prof"] = profili.profiles_of(c)
         c["_studio"] = studio.levels_of(c)
+        c["_who"] = who_of(c)
         c["_disc"] = discipline.disciplines_of(c) if "medici" in c["_prof"] else []
         regs = regions_of(c)
         c["_comune"], c["_prov"] = local.place_of(c.get("ente"), regs[0] if len(regs) == 1 else "")
