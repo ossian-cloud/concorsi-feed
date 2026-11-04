@@ -134,7 +134,7 @@ def deadline(scad):
         return None
 
 
-POSTS = re.compile(r"\b(?:di|per)\s+(?:n\.\s*)?(\d+|[a-zàéè]+'?)\s+(?:\w+\s+)?post[oi]\b", re.I)
+POSTS = re.compile(r"\b(?:di|per)\s+(?:n\.\s*)?(\d+|[a-zàéè]+'?)\s+(?:\w+\s+)?(?:post[oi]|professor[ei]|ricercator[ei]|unità|dirigent[ei])\b", re.I)  # "chiamata di tre professori" (4 Nov 2026)
 UNITS = {"un": 1, "uno": 1, "una": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5, "sei": 6, "sette": 7,
          "otto": 8, "nove": 9, "dieci": 10, "undici": 11, "dodici": 12, "tredici": 13, "quattordici": 14,
          "quindici": 15, "sedici": 16, "diciassette": 17, "diciotto": 18, "diciannove": 19}
@@ -322,6 +322,8 @@ def main():
         seen[f"{d}/{n}"] = {"entries": len(entries), "fetched": dt.datetime.now().isoformat(timespec="minutes")}
     for line in apply_cancels(calls, cancels, seen):
         print(line, file=sys.stderr)
+    for c in calls.values():  # a parser change reaches stored records without new requests
+        c["posts"] = posts_of(c["title"])
     cut = (dt.date.today() - dt.timedelta(days=60)).isoformat()
     calls = {k: c for k, c in calls.items() if (c["closes"] or c["opens"])[:10] >= cut}
     cancels = {k: a for k, a in cancels.items() if a["date"] >= cut}
