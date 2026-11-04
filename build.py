@@ -723,11 +723,13 @@ FRESH_DAYS = 3  # «nuovo» in lists: applications opened today or in the two da
 FRESH = ("", "")  # (first, last) local ISO day of FRESH_DAYS, set by main()
 
 
-def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False, fresh=True):
+def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False, fresh=True, towns=None):
     """<li> rows: short title linking to our call page, then ente, area, posts and deadline.
     tag: data-r with the call's group keys, for the region filter on profession pages (REGION_FILTER),
     and data-d with its medical disciplines (discipline.py), for the discipline filter on medici.html.
-    fresh: a «nuovo» tag on calls opened in the last FRESH_DAYS days (not on nuovi.html, which is all new)."""
+    fresh: a «nuovo» tag on calls opened in the last FRESH_DAYS days (not on nuovi.html, which is all new).
+    towns: a set, on province pages: data-c with the call's town (town_of) for TOWN_FILTER, and an id on the
+    first row of each town, so that the town links work without JavaScript too."""
     e = html.escape
     lis = []
     for c in calls:
@@ -737,6 +739,10 @@ def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag
             ente, where = f'{ente} ({sede["sede_sigla_provincia"]})', None
         meta = [aud_tag(c), ente, where, region_text(c), posts_text(c), "scade " + deadline_short(c) if valid_closes(c) else None]
         data = f' data-r="{" ".join(keys_of(c))}"' if tag else ""
+        if towns is not None and town_of(c):
+            t = "comune-" + slug(town_of(c))
+            data += f' data-c="{t}"' + ("" if t in towns else f' id="{t}"')
+            towns.add(t)
         if tag and c["_disc"]:
             data += f' data-d="{" ".join(c["_disc"])}"'
         title = f'{short_title(c, 105 - len(c["_note"]))} ({c["_note"]})' if c.get("_note") else short_title(c, 110)
@@ -1416,6 +1422,19 @@ WHO_NOTE = {"categorie-protette": ("Ci sono i bandi <b>interamente riservati</b>
             'profughi): sono nella pagina delle <a href="../profilo/categorie-protette.html">categorie protette</a>, insieme a quelli il cui titolo non dice '
             "quale delle due categorie. Li riconosco dal titolo: molti concorsi applicano la riserva senza scriverlo lì, quindi qui ne mancano. "
             'Chi può partecipare, e con quali documenti, lo dice il bando. <a href="../info.html#categorie-protette">Come li riconosco</a>.')}
+# the first line of WHO_NOTE / HOURS_NOTE, always visible; the full note goes in a <details>, so that on a phone
+# the list starts on the first screen (review 4 Nov 2026: the categorie protette list was below the fold)
+GROUP_SHORT = {"categorie-protette": "Riservati in tutto o in parte alle categorie della legge 68/1999. Li riconosco dal titolo, quindi qualcuno manca: chi può partecipare lo dice il bando.",
+               "disabili": "Riservati in tutto o in parte alle persone con disabilità (art. 1 della legge 68/1999). Li riconosco dal titolo, quindi qualcuno manca: chi può partecipare lo dice il bando.",
+               "part-time": "Concorsi che nel titolo, o se il titolo tace nella descrizione, dicono «part-time» o «tempo parziale». Chi indica l'orario solo nel bando qui manca."}
+
+
+def group_note(name, full, after=""):
+    """<p> with the short note (and `after`), then the full note folded."""
+    return (f'<p class="small">{GROUP_SHORT[name]}{after}</p>\n'
+            f'<details class="small"><summary>Cosa c\'è e cosa manca</summary><div>{full}</div></details>')
+
+
 LEVEL_NOTE = "inPA non indica il titolo di studio richiesto: lo stimo dal livello del contratto nel titolo o nella descrizione (per esempio «Area degli Istruttori» o «categoria C» = diploma), quindi qualche concorso può mancare o essere fuori posto. I requisiti veri sono nel bando: controllali sempre."
 
 
@@ -1459,7 +1478,7 @@ def write_profile_pages(outdir, psets, when, pair_keys=()):
 <p class="small">Per regione: {spread}.</p>
 {disc_line}<p id="solo" class="lead" hidden data-f="{name}" data-names="{names}"{disc_attr}>Solo <b></b>: <span></span>.
 <a href="#">Mostra tutti</a> · <a class="feed" href="../feed.html">feed</a> · <a class="cal" href="../feed.html">calendario</a> di questa selezione.</p>
-<p class="small">{note}</p>
+{group_note(name, note) if name in GROUP_SHORT else f'<p class="small">{note}</p>'}
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#su-misura">Solo nella tua regione</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#{"categorie-protette" if name in WHO else "part-time" if name in HOURS else "professione"}">Come si usano?</a></div>
 {items_html(sel, "../", tag=True)}
@@ -1512,7 +1531,7 @@ def write_pair_pages(outdir, psets, when):
             head = f"{PAIR_HEAD[name]} {in_region(r)}"
             note = (f'{LEVEL_NOTE} <a href="../../info.html#titolo-di-studio">Come lo stimo</a>.' if level else
                     WHO_NOTE[name].replace("../", "../../") if name in WHO else
-                    HOURS_NOTE.replace("../", "../../") + f' Guarda anche <a href="../../regione/{r}.html">tutti i concorsi {e(in_region(r))}</a>.' if name in HOURS else
+                    HOURS_NOTE.replace("../", "../../") if name in HOURS else
                     'inPA non indica la professione: la riconosco dalle parole del titolo, quindi qualche concorso può mancare o essere fuori posto. '
                     f'Per non perderne, guarda anche <a href="../../regione/{r}.html">tutti i concorsi {e(in_region(r))}</a>. <a href="../../info.html#professioni">Come la riconosco</a>.')
             q = custom(name, r)
@@ -1520,7 +1539,7 @@ def write_pair_pages(outdir, psets, when):
             body = f"""{layout.crumbs([(f"profilo/{name}.html", label), ("", rlab)], 2)}
 <h1>{e(head)}</h1>
 <p class="lead">{plural(len(rsel), "concorso aperto", "concorsi aperti")} {SU}, dalla scadenza più vicina. Aggiornato il {when}.</p>
-<p class="small">{note}</p>
+{group_note(name, note, f' Guarda anche <a href="../../regione/{r}.html">tutti i concorsi {e(in_region(r))}</a>.') if name in GROUP_SHORT else f'<p class="small">{note}</p>'}
 <div class="actions"><a class="pill" href="../../{e(custom(name, r, cal=True))}"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../../{e(q)}"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../{name}.html">{e(label)}: tutta Italia</a><a class="pill" href="../../regione/{r}.html">Tutti i concorsi: {e(rlab)}</a><a class="pill" href="../../feed.html#email">Avvisi per email</a></div>
 {items_html(rsel, "../../")}"""
@@ -1531,6 +1550,37 @@ def write_pair_pages(outdir, psets, when):
     return written
 
 
+def town_of(c):
+    """The town a province page files a call under: the local authority's comune, else its known seat
+    (a Provincia or an ASL under its seat town)."""
+    return c["_comune"] or sede_fields(c)["sede_comune"]
+
+
+# provincia/<x>.html#comune-<town>: only that town's calls, in both lists; the counts are in the town links.
+TOWN_FILTER = """<script>(function () {
+  var box = document.getElementById("solo"), names = JSON.parse(box.dataset.names),
+      rows = document.querySelectorAll(".items li"), live = document.createElement("p");
+  live.className = "sr-only"; live.setAttribute("role", "status"); box.parentNode.insertBefore(live, box);
+  function show(e) {
+    var t = decodeURIComponent(location.hash.slice(1)), n = 0;
+    if (!names.hasOwnProperty(t)) t = "";
+    rows.forEach(function (li) { var ok = !t || li.dataset.c === t; li.style.display = ok ? "" : "none"; if (ok) n++; });
+    document.querySelectorAll(".items").forEach(function (ul) {  // a list left empty hides its heading too
+      var h = ul.previousElementSibling && ul.previousElementSibling.previousElementSibling;
+      if (h && h.id === "altri-enti") { var any = ul.querySelector("li:not([style*=none])"); h.style.display = h.nextElementSibling.style.display = any ? "" : "none"; }
+    });
+    box.hidden = !t;
+    if (e) live.textContent = (t ? names[t] + ": " : "Tutti: ") + n + (n == 1 ? " concorso aperto" : " concorsi aperti");
+    if (!t) return;
+    box.querySelector("b").textContent = names[t];
+    box.querySelector("span").textContent = n + (n == 1 ? " concorso aperto" : " concorsi aperti");
+    if (e) box.scrollIntoView();
+  }
+  window.addEventListener("hashchange", show);
+  show();
+})();</script>"""
+
+
 def write_province_pages(outdir, vsets, when, open_=()):
     """provincia/<slug>.html: open calls of the local authorities (local.py) in each province, then those of other
     bodies whose one known seat (sede_comune) is in it. Feeds and calendars keep the local authorities only. Returns the keys."""
@@ -1539,25 +1589,33 @@ def write_province_pages(outdir, vsets, when, open_=()):
     for key, (name, sel) in vsets.items():
         rk = prov_region(sel)
         label = prov_label(key, vsets)
-        comuni = sorted({c["_comune"] for c in sel if c["_comune"]})
         others = [c for c in open_ if c.get("_seat_prov") == name]
+        count = {}
+        for c in sel + others:
+            if town_of(c):
+                count[town_of(c)] = count.get(town_of(c), 0) + 1
+        comuni = sorted(count, key=lambda t: slug(t))
+        town_names = e(json.dumps({"comune-" + slug(t): t for t in comuni}, ensure_ascii=False))
+        towns = set()
+        main_list = items_html(sel, "../", towns=towns)  # first, so the ids go on the first rows
         n = len(sel) + len(others)
         for_all = sum(c.get("_aud") not in CLOSED_TO_PUBLIC for c in sel + others)
         reg_n = sum(rk in keys_of(c) for c in open_)
         naz_n = sum(NAZ in keys_of(c) and c.get("_aud") not in CLOSED_TO_PUBLIC for c in open_)
         rest = (f"""<h2 id="altri-enti">Altri enti con sede in provincia di {e(name)}</h2>
 <p class="small">{plural(len(others), "concorso aperto", "concorsi aperti")} di aziende sanitarie, ospedali, università e altri enti la cui sede è in un comune della provincia: lo ricavo dal nome dell'ente, dal testo del bando o dal sito dell'ente. Molti hanno più sedi, anche fuori provincia: dove si lavora lo dice il bando. Questi concorsi non sono nel feed e nel calendario qui sopra, che restano dei soli enti locali.</p>
-{items_html(others, "../")}""" if others else "")
+{items_html(others, "../", towns=towns)}""" if others else "")
         body = f"""{layout.crumbs([(f"regione/{rk}.html", label_of(rk)), ("", f"Provincia di {name}")], 1)}
 <h1>Concorsi in provincia di {e(name)}</h1>
 <p class="lead">{plural(len(sel), "concorso aperto", "concorsi aperti")} {SU} di Comuni, Provincia o Città metropolitana, dalla scadenza più vicina{f', poi <a href="#altri-enti">{plural(len(others), "concorso", "concorsi")} di altri enti con sede in provincia</a>' if others else ""}. Aggiornato il {when}.</p>
 {f'<p class="small">Aperti a tutti: <b>{for_all}</b> su {n}. Gli altri sono mobilità per chi è già dipendente pubblico, procedure interne, bandi riservati o corsi: lo dice la nota accanto a ciascuno.</p>' if for_all < n else ""}
 <p class="small">Gli enti che non hanno una sede sola, o di cui non la conosco, sono solo nella pagina <a href="../regione/{rk}.html">{e(label_of(rk))}</a> ({plural(reg_n, "concorso aperto", "concorsi aperti")} in tutta la regione). Ci sono poi {plural(naz_n, "concorso nazionale aperto", "concorsi nazionali aperti")} a tutti, a cui si può partecipare da qualsiasi provincia (il posto di lavoro può essere altrove): <a href="../regione/{NAZ}.html">{e(NAZ_LABEL)}</a>. <a href="../info.html#province">Come funziona</a>.</p>
-{f'<p class="small">Comuni: {e(", ".join(comuni))}.</p>' if comuni else ""}
+{f'<p class="small">Per comune: {", ".join(f"""<a href="#comune-{slug(t)}">{e(t)}</a> ({count[t]})""" for t in comuni)}.</p>' if comuni else ""}
+{f"""<p id="solo" class="lead" hidden data-names="{town_names}">Solo <b></b>: <span></span>. <a href="#">Tutta la provincia</a></p>""" if comuni else ""}
 <div class="actions"><a class="pill" href="../calendario/{key}.ics"><span aria-hidden="true">📅</span> Calendario delle scadenze</a>
 <a class="pill" href="../feed/{key}.xml"><span aria-hidden="true">📡</span> Feed</a><a class="pill" href="../feed.html#email">Avvisi per email</a><a class="pill" href="../feed.html#provincia">Come si usano?</a></div>
-{items_html(sel, "../")}
-{rest}"""
+{main_list}
+{rest}{TOWN_FILTER if comuni else ""}"""
         emit_page(outdir, f"provincia/{key[5:]}.html", f"Concorsi in provincia di {name}: {n} aperti" if others else f"Concorsi Comuni in provincia di {name}: {n} aperti",
                   f"{plural(n, 'concorso aperto', 'concorsi aperti')} {SU} in provincia di {name}: Comuni ed enti locali{', aziende sanitarie, università e altri enti con sede in provincia' if others else ''}. Scadenze, feed e calendario, nuovi bandi ogni giorno.",
                   body, "./", 1, f'\n<link rel="alternate" type="application/atom+xml" title="Concorsi pubblici · {e(label)}" href="../feed/{key}.xml">')

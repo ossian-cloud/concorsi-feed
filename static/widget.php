@@ -66,13 +66,23 @@ if (!is_array($D)) fail(503, 'Dati non disponibili, riprova più tardi.');
 if ($r !== '' && !isset($D['regions'][$r])) fail(400, 'Regione non valida.');
 if ($p !== '' && !isset($D['provinces'][$p])) fail(400, 'Provincia non valida.');
 if ($f !== '' && !isset($D['profiles'][$f])) fail(400, 'Professione non valida.');
-$words = preg_split('/\s+/u', fold($q), -1, PREG_SPLIT_NO_EMPTY);
+// phrases that name a group the page already knows (f=...) become that filter, since titles
+// word it many ways ("part time 50%", "tempo parziale", "art. 1 L. 68/99")
+$fq = fold($q);
+$groups = [];
+foreach (['part-time' => '/\bpart[- ]?time\b|\btempo parziale\b|\bparziale\b/u',
+          'categorie-protette' => '/\bcategorie protette\b|\bcategoria protetta\b/u',
+          'disabili' => '/\bdisabil\w*|\bdiversamente abil\w*/u'] as $g => $re) {
+    if (isset($D['profiles'][$g]) && preg_match($re, $fq)) { $groups[] = $g; $fq = preg_replace($re, ' ', $fq); }
+}
+$words = preg_split('/\s+/u', $fq, -1, PREG_SPLIT_NO_EMPTY);
 
 $cutoff = $now->format('Y-m-d\TH:i');
 $hits = [];
 foreach ($D['rows'] as $row) {
     if (($r !== '' && !in_array($r, $row['r'], true)) || ($f !== '' && !in_array($f, $row['f'], true))) continue;
     if ($p !== '' && $row['p'] !== $p) continue;
+    foreach ($groups as $g) if (!in_array($g, $row['f'], true)) continue 2;
     foreach ($words as $w) if (!str_contains($row['t'], $w)) continue 2;
     if ($row['w'][3] !== '' && $row['w'][3] < $cutoff) continue;  // deadline passed since the last build
     $hits[] = $row['w'];
