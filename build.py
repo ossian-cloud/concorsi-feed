@@ -890,11 +890,18 @@ ART90 = re.compile(r"\bart(?:icolo|\.)?\s*90\b" + TUEL + r"|uffici?o? (?:di )?st
 ART110 = re.compile(r"\bart(?:icolo|\.)?\s*110\b" + TUEL, re.I)
 
 
+# The description only when it says so outright: NOT_OPEN on descriptions also catches side clauses
+# ("si provvederà allo scorrimento della graduatoria"), 8 of 10 hits on 4 Nov 2026
+DESC_NOT_OPEN = re.compile(r"\b(?:selezione|procedura|avviso)\s+(?:\w+\s+){0,2}riservat[ao]\s+(?:esclusivamente\s+)?a(?:l)?\s+personale\s+gi[aà]['’]?\s+in\s+servizio"
+                           r"|\b(?:procedura|selezione|avviso)\s+(?:\w+\s+){0,2}di\s+stabilizzazione\b"
+                           r"|\bart(?:icolo|\.)?\s*92\b(?=[^;]{0,40}?(?:267|t\.?\s?u\.?\s?e\.?\s?l))", re.I)
+
+
 def audience(c):
     """Who the call is for, guessed from its title (the same tests as JobPosting): "notopen", "mobility", "reserved",
     "course" (trainees), "staff" (art. 90), "fixed" (art. 110), or "" for an ordinary public call."""
     full = " ".join(c["title"].split())
-    if NOT_OPEN.search(full):
+    if NOT_OPEN.search(full) or DESC_NOT_OPEN.search(" ".join((c.get("desc") or "")[:600].split())):
         return "notopen"
     if is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):
         return "mobility"
@@ -923,11 +930,18 @@ def audience_note(c):
     someone who arrived from "lavoro <town>" knows before reading the call. A guess from the title: the call decides."""
     aud = c.get("_aud", audience(c))
     if aud == "notopen":
-        what_ = ("Dal titolo sembra una procedura <b>non aperta a tutti</b>: progressione o stabilizzazione del personale dell'ente, "
+        what_ = ("Dal titolo" + ("" if NOT_OPEN.search(" ".join(c["title"].split())) else " e dalla descrizione su inPA")
+                 + " sembra una procedura <b>non aperta a tutti</b>: progressione o stabilizzazione del personale dell'ente, "
                  "interpello, scorrimento di graduatorie o elenchi già formati, o avviso riservato a chi è già dipendente.")
     elif aud == "mobility":
         what_ = ("Dal titolo sembra un <b>avviso di mobilità</b>: di norma può partecipare solo chi lavora già, a tempo indeterminato, "
                  "in un'altra pubblica amministrazione.")
+        t = " ".join(c["title"].split())
+        g = l68_groups(t)
+        if is_reserved(t):  # Messina, Piombino Dese (4 Nov 2026): mobility reserved to staff with a disability
+            what_ += (" È anche <b>riservato alle persone con disabilità</b> (art. 1 della legge 68/1999)." if g == ["art1"]
+                      else " È anche <b>riservato alle categorie protette dell'art. 18</b> della legge 68/1999." if g == ["art18"]
+                      else " È anche <b>riservato alle categorie protette</b> (legge 68/1999).")
     elif aud == "reserved":
         full = " ".join(c["title"].split())
         g = l68_groups(full)
@@ -960,7 +974,7 @@ def audience_note(c):
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
     full = " ".join(c["title"].split())
-    if NOT_A_JOB.search(full) or NOT_OPEN.search(full):
+    if NOT_A_JOB.search(full) or NOT_OPEN.search(full) or c.get("_aud", audience(c)) == "notopen":
         return ""
     facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", posts_text(c)),
              ("Valutazione", c.get("eval")), ("Scadenza", c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
@@ -1037,7 +1051,16 @@ def page_title(c, now, note=""):
     if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
         rest = title[len(who):].lstrip(" -–—:,._")
         title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
-    title = titles.cut(title, max(36, 64 - len(note)))
+    # what a searcher filters on, when the cut drops it (4 Nov 2026 audit: 3 of 6 part-time, 3 of 8 reserved lost it)
+    extra = []
+    if hours_of(c) and not re.search(r"part.?time|parzial", titles.cut(title, max(36, 64 - len(note))), re.I):
+        extra.append("part-time")
+    if c.get("_aud", audience(c)) == "reserved" and not re.search(r"riserv", titles.cut(title, max(36, 64 - len(note))), re.I):
+        extra.append("riservato disabili" if l68_groups(" ".join(c["title"].split())) == ["art1"] else "riservato categorie protette")
+    extra = ", " + ", ".join(extra) if extra else ""
+    plain, title = titles.cut(title, max(36, 64 - len(note))), titles.cut(title, max(36, 64 - len(note) - len(extra))) + extra
+    if who and len(title) + len(note) + len(who) > 84 >= len(plain) + len(note) + len(who):  # the ente wins: "lavoro <town>"
+        title = plain
     if len(title) + len(note) + len(who) > 84:  # the ente is in the description and the h1 anyway
         who = ""
     return title + note + (f" - {who}" if who else "") + tail

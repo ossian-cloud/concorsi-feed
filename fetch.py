@@ -27,6 +27,7 @@ import urllib.request
 SITEMAP = "https://www.inpa.gov.it/sitemap-bandi.xml"
 DESC_MAX = 2500     # characters of description kept (600 until 2026-10-11; those cut at 600 are re-read, REFETCH_MAX a run)
 REFETCH_MAX = 150
+RECHECK_HOURS = 20  # calls closing by tomorrow are re-read this often (extensions keep the same lastmod)
 PAGE = "https://www.inpa.gov.it/bandi-e-avvisi/dettaglio-bando-avviso/?concorso_id={}"
 UA = "OssianBot/0.1 (+https://ossian.cloud/concorsi/; ossian@ossian.cloud)"
 PAUSE = 3
@@ -195,10 +196,20 @@ def main():
     missing = [cid for cid in listed if cid in calls and cid not in todo and "apply" not in calls[cid]]
     missing.sort(key=lambda k: (calls[k].get("closes") or "") < now.strftime("%Y-%m-%d"))
     todo += missing[:a.apply_max]
+    # an extension ("Proroga", 4 Nov 2026: Univ. Salerno 04/11 -> 19/11) leaves lastmod unchanged:
+    # re-read calls closing by tomorrow (or already past but still listed) once every RECHECK_HOURS
+    horizon = (now + dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    closing = [cid for cid in listed if cid in calls and cid not in todo
+               and (calls[cid].get("closes") or "9")[:10] <= horizon
+               and now - dt.datetime.fromisoformat(calls[cid].get("fetched") or "2000-01-01T00:00:00+00:00")
+               > dt.timedelta(hours=RECHECK_HOURS)]
+    closing.sort(key=lambda k: calls[k].get("closes") or "")
+    todo += closing[:REFETCH_MAX]
     if a.max:
         todo = todo[:a.max]
     print(f"{len(listed)} listed (newest lastmod {max(listed.values(), default='-')}), {len(calls)} stored, {len(todo)} to fetch", flush=True)
     done = errors = 0
+    moved = []  # calls whose deadline changed with the same lastmod
     for cid in todo:
         try:
             rec = parse(get(PAGE.format(cid)))
@@ -215,13 +226,18 @@ def main():
                 sys.exit("BLOCKED: too many errors")
             continue
         rec.update(id=cid, lastmod=listed[cid], fetched=now.isoformat(timespec="seconds"))
+        old = calls.get(cid, {})
+        if old.get("lastmod") == listed[cid] and old.get("closes") and old.get("closes") != rec.get("closes"):
+            moved.append(f"{cid} {old['closes']} -> {rec.get('closes')}")
         calls[cid] = rec
         done += 1
         if done % 25 == 0:
             save(calls)
             print(f"{done}/{len(todo)}", flush=True)
     save(calls)
-    print(f"fetched {done}, errors {errors}, total {len(calls)}", flush=True)
+    print(f"fetched {done}, errors {errors}, total {len(calls)}, deadline changed without lastmod: {len(moved)}", flush=True)
+    for m in moved:
+        print(f"  deadline moved: {m}", flush=True)
 
 
 if __name__ == "__main__":
