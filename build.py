@@ -971,6 +971,22 @@ def audience_note(c):
     return f'<p class="note">{what_} Chi può partecipare lo dice il bando: controlla i requisiti. <a href="../info.html#{'categorie-protette' if aud == 'reserved' else 'mobilita'}">Perché lo segnalo</a></p>'
 
 
+_JOBS = {}
+
+
+def base_job(c):
+    """The one job a call hires for, as the JobPosting title says it before its notes ("" if unknown, None if not a job)."""
+    key = (c.get("id"), c["title"], c.get("desc"))
+    if key not in _JOBS:
+        full = " ".join(c["title"].split())
+        sc = what.other_job(full) or ""  # of other_job's headlines only the director's, the manager's and the research contracts' are one job
+        sc = sc if sc.startswith(("Direttore", "Dirigente", "Incarico", "Contratto")) else ""
+        w = what.what(titles.sentence_case(full), c.get("ente"))
+        job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c) or late_job(c), c)
+        _JOBS[key] = None if job and NOT_A_JOB.search(job) else job
+    return _JOBS[key]
+
+
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
     full = " ".join(c["title"].split())
@@ -996,12 +1012,10 @@ def job_posting(c, url):
         addr["addressRegion"] = regs[0]
     elif c.get("region") and slug(c["region"]) != NAZ:
         addr["addressRegion"] = c["region"]
-    sc = what.other_job(full) or ""  # of other_job's headlines only the director's, the manager's and the research contracts' are one job
-    sc = sc if sc.startswith(("Direttore", "Dirigente", "Incarico", "Contratto")) else ""
-    w = what.what(titles.sentence_case(full), c.get("ente"))
-    job = doctor_job(what.role(w) or sc or desc_job(c) or what.role_late(w) or freelance_job(full) or afam_job(c) or military_job(c) or late_job(c), c)
-    if job and NOT_A_JOB.search(job):  # a code-only title ("NIV2026") whose description names a board seat
+    job = base_job(c)
+    if job is None:  # a code-only title ("NIV2026") whose description names a board seat
         return ""
+    w = what.what(titles.sentence_case(full), c.get("ente"))
     if job and is_mobility(full, w):  # open only to staff of other public bodies: say so where searchers read it
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
@@ -1037,7 +1051,7 @@ TITLE_DISCIPLINE = re.compile(r",?\s*[–-]?\s*\b(?:(?:per|nella|della|in) (?:la
 TITLE_ONE_POST = re.compile(r"(?<=: )(?:n\.\s?1|un|uno|una|1)\s+(?:\(uno\)\s+)?posto\s+(?:(?:nel|con) (?:il )?profilo(?: professionale)? )?(?:di|da)\s+", re.I)
 
 
-def page_title(c, now, note=""):
+def page_title(c, now, note="", job=True):
     """<title>: the job first (Google shows about 60 characters), the ente when there is room, the deadline.
     `note` tells apart calls whose titles would collide."""
     closed = c["_closed"]
@@ -1051,16 +1065,36 @@ def page_title(c, now, note=""):
     if who and title.lower().startswith(who.lower()):  # "COMUNE DI X – FUNZIONARIO TECNICO": the ente goes after
         rest = title[len(who):].lstrip(" -–—:,._")
         title, who = (rest[:1].upper() + rest[1:], who) if len(rest) > 12 else (title, "")
+    # the job, when the cut drops it ("Concorso: n. 7 posti nel profilo professionale…": 573 of 1,622 on 5 Nov 2026)
+    full = " ".join(c["title"].split())  # only for calls with a JobPosting: "riservata al personale interno" must stay
+    job = job and not (NOT_A_JOB.search(full) or NOT_OPEN.search(full) or c.get("_aud", audience(c)) == "notopen") and base_job(c)
+    job = job if job and "[" not in job else ""  # "Responsabile scientifico prof. [nome omesso]"
+    if job and job.split()[0].lower()[:-1] not in titles.cut(title, max(36, 64 - len(note))).lower():  # "2 ricercatori" names "Ricercatore"
+        said = re.search(r"riservat", titles.cut(title, max(36, 64 - len(note))), re.I)  # "riservato ai sensi dell'art. 1 comma 312…"
+        kind = re.match(r"([^\W\d][\w’' ]{2,30}?): ", title)
+        kind = kind and kind.group(1)
+        kind = "Mobilità" if not (kind or "").startswith("Mobilità") and is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))) else kind
+        job += " (staff del sindaco)" if ART90.search(full) else ""
+        title, bare = (f"{kind}: {job}" if kind else job), (job if kind in ("Concorso", "Selezione", "Avviso", "Bando", "Procedura") else "")
+    else:
+        bare, said = "", None
     # what a searcher filters on, when the cut drops it (4 Nov 2026 audit: 3 of 6 part-time, 3 of 8 reserved lost it)
     extra = []
     if hours_of(c) and not re.search(r"part.?time|parzial", titles.cut(title, max(36, 64 - len(note))), re.I):
         extra.append("part-time")
-    if c.get("_aud", audience(c)) == "reserved" and not re.search(r"riserv", titles.cut(title, max(36, 64 - len(note))), re.I):
+    aud = c.get("_aud", audience(c))
+    if (aud == "reserved" or aud == "mobility" and is_reserved(full)) and not re.search(r"riserv", titles.cut(title, max(36, 64 - len(note))), re.I):
         extra.append("riservato disabili" if l68_groups(" ".join(c["title"].split())) == ["art1"] else "riservato categorie protette")
+    elif said and aud != "mobility" and not re.search(r"riserv", title, re.I):
+        extra.append("riservato")
     extra = ", " + ", ".join(extra) if extra else ""
     plain, title = titles.cut(title, max(36, 64 - len(note))), titles.cut(title, max(36, 64 - len(note) - len(extra))) + extra
     if who and len(title) + len(note) + len(who) > 84 >= len(plain) + len(note) + len(who):  # the ente wins: "lavoro <town>"
-        title = plain
+        short = bare and titles.cut(bare, max(36, 64 - len(note) - len(extra))) + extra  # but first a bare "Concorso:" goes
+        if short and len(short) + len(note) + len(who) <= 84:
+            title = short
+        elif "riservat" not in extra:  # who may apply beats who hires: the ente goes below
+            title = plain
     if len(title) + len(note) + len(who) > 84:  # the ente is in the description and the h1 anyway
         who = ""
     return title + note + (f" - {who}" if who else "") + tail
@@ -1069,12 +1103,12 @@ def page_title(c, now, note=""):
 NOTE_TAIL = re.compile(r"(?:\s+(?:area|profilo|e|ed|di|da|a|il|la|per|presso|con|in|del|della|dello|dei|degli|delle)|[\s,.;:–—-]+)+$", re.I)
 
 
-def title_notes(calls, now):
+def title_notes(calls, now, job=True):
     """Calls whose <title> would be identical (eight research grants of one university, cut before their code)
     get the first words where their full title differs from the others in the group."""
     groups, notes = {}, {}
     for c in calls:
-        groups.setdefault(page_title(c, now), []).append(c)
+        groups.setdefault(page_title(c, now, job=job), []).append(c)
     for group in groups.values():
         if len(group) < 2:
             continue
@@ -1274,7 +1308,7 @@ def write_call_pages(outdir, kept, open_, today, now, region_pages, profile_page
     shards, indexable = {}, []
     idx = near_index(open_, now)
     for c in kept:
-        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_note", ""), nearby(c, idx), pair_pages)
+        shards.setdefault(c["id"][0], {})[c["id"]] = call_page(c, today, now, region_pages, profile_pages, province_pages, c.get("_pnote", ""), nearby(c, idx), pair_pages)
         if not c["_closed"]:
             indexable.append((page_rel(c), c["lastmod"]))
     d = os.path.join(outdir, "concorso", "data")
@@ -2125,6 +2159,7 @@ La guida passo per passo è quella dei <a href="../bandi/come-ricevere.html">ban
 <h2>Cosa contiene</h2>
 <ul>
 <li>I concorsi, le selezioni e gli avvisi di mobilità aperti pubblicati su inPA{" (e quelli della Gazzetta Ufficiale: <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}. Per ognuno: titolo, ente, area geografica, posti, tipo di valutazione, date di apertura e scadenza, retribuzione se indicata, descrizione abbreviata, elenco dei documenti con il link a inPA e i link alla scheda ufficiale e per candidarsi.</li>
+<li>Rileggo una scheda di inPA quando inPA segnala che è cambiata; quelle che scadono entro domani le rileggo comunque una volta al giorno, perché una proroga dei termini non sempre viene segnalata. Una proroga decisa all'ultimo può quindi arrivare qui con qualche ora di ritardo: fa fede inPA.</li>
 <li>Non elenco le voci di inPA che non sono bandi ma avvisi su una procedura già in corso (approvazione di graduatorie, calendari e convocazioni delle prove, esiti) né le revoche: a quelle non ci si può candidare.</li>
 <li>Ogni concorso aperto ha una sua pagina. La pagina resta {GRACE_DAYS} giorni dopo la scadenza (senza indicizzazione, con l'avviso «candidature chiuse») e poi viene tolta; lo stesso vale per un concorso che sparisce da inPA.</li>
 <li>Feed e calendari sono per regione e per tutta Italia. La regione è quella indicata da inPA come «area geografica»{" (per la Gazzetta Ufficiale, <a href='#gazzetta'>vedi sotto</a>)" if GU_ON else ""}: un concorso in più regioni compare in ciascuna. I concorsi con area «Nazionale», senza area o con un valore che non è una regione italiana stanno nel gruppo «{NAZ_LABEL}».</li>
@@ -2147,7 +2182,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo: chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione e gli avvisi per tirocini, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis), scavalchi e assegnazioni temporanee per chi lavora già in un altro ente (art. 92 del d.lgs. 267/2000). Non segnalo nemmeno le autorizzazioni per il noleggio con conducente, che non sono un lavoro alle dipendenze dell'ente. Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo (per le procedure non aperte a tutti, anche dalla descrizione su inPA, quando lo dice esplicitamente): chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione e gli avvisi per tirocini, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis), scavalchi e assegnazioni temporanee per chi lavora già in un altro ente (art. 92 del d.lgs. 267/2000). Non segnalo nemmeno le autorizzazioni per il noleggio con conducente, che non sono un lavoro alle dipendenze dell'ente. Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
@@ -2217,8 +2252,10 @@ def main(outdir):
     global FRESH
     FRESH = ((today - dt.timedelta(days=FRESH_DAYS - 1)).isoformat(), today.isoformat())
     open_, kept = classify(calls, now)
-    for k, note in title_notes(kept, now).items():  # in page titles and lists
+    for k, note in title_notes(kept, now, job=False).items():  # in lists
         calls[k]["_note"] = note
+    for k, note in title_notes(kept, now).items():  # in page titles, which lead with the job when the list title doesn't name it
+        calls[k]["_pnote"] = note
     os.makedirs(outdir, exist_ok=True)
     latest = max((c["lastmod"] for c in calls.values()), default="2026-01-01T00:00:00Z")
     sets, psets, vsets = write_feeds(outdir, open_, latest)
