@@ -1096,6 +1096,9 @@ def page_title(c, now, note="", job=True):
             title = short
         elif "riservat" not in extra:  # who may apply beats who hires: the ente goes below
             title = plain
+    # the note's shorter cut can turn the title into the job, which may already say the note: "Istruttore contabile (Contabile)"
+    if len(note) > 6 and re.search(r"\b" + re.escape(note[2:-1].rstrip("…").lower()) + r"\b", title.lower()):
+        note = ""
     if len(title) + len(note) + len(who) > 84:  # the ente is in the description and the h1 anyway
         who = ""
     return title + note + (f" - {who}" if who else "") + tail
