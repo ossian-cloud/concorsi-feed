@@ -29,6 +29,9 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 - `dati/concorsi-aperti.csv` (written by `build.py`, documented on `dati.html`): every open call, one row each, with
   the derived region, province, comune and professions. inPA publishes no open dataset of its calls; this one keeps
   inPA's CC BY 3.0 licence.
+- `dati/concorsi-chiusi-AAAA-MM.csv.gz`: the archive of closed inPA calls, one gzipped file per month of closing (or of
+  vanishing from inPA, if earlier), same columns with `url_pagina` empty. `build.py` keeps each closed call's last row in
+  `data/closed-rows.json`, so it outlives the call record that `fetch.py` drops. Complete from November 2026.
 - `static/widget.php`: the same filters, `formato` aside (plus `n`, 1-50) as a small HTML list for an iframe on other sites, soonest
   deadline first, calls whose deadline passed since the last build left out. No scripts, cookies or external resources.
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research

@@ -1741,6 +1741,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-06", "Nuovi file mensili <code>concorsi-chiusi-AAAA-MM.csv.gz</code> con i concorsi chiusi, stesse colonne di <code>concorsi-aperti.csv</code> (compressi con gzip). <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-11-03", "Aggiunta in fondo a entrambi i file la colonna <code>categorie_protette</code>: «riservato» o «posti riservati» quando il titolo dichiara una riserva per le categorie protette (legge 68/1999). Le colonne esistenti non cambiano."),
     ("2026-11-02", "Aggiunte in fondo a entrambi i file le colonne <code>sede_comune</code>, <code>sede_fonte</code>, <code>sede_sigla_provincia</code> e <code>sede_codice_istat</code>: il comune dove si lavora, quando se ne ricava uno solo, con il codice ISTAT per unirlo ad altri dati. Le colonne esistenti non cambiano."),
     ("2026-11-01", "Aggiunta in fondo la colonna <code>url_candidatura</code>: per circa un concorso su quattro inPA manda a presentare la domanda sul sito dell'ente (per esempio PICA per le università), non sul portale inPA."),
@@ -1778,10 +1779,13 @@ def write_datapackage(outdir, files, latest):
     """dati/datapackage.json: a Frictionless Data Package describing the CSVs, so tools can read them with types."""
     resources = []
     for name, fields_ in files:
-        title, licence, source = RESOURCES[name]
+        closed = re.fullmatch(r"concorsi-chiusi-(\d{4})-(\d\d)\.csv\.gz", name)
+        title, licence, source = RESOURCES[name] if not closed else RESOURCES["concorsi-aperti.csv"]
+        if closed:
+            title = f"Concorsi chiusi su inPA, con scadenza a {MONTHS[int(closed[2]) - 1]} {closed[1]}"
         types = GU_FIELD_TYPES if name == "concorsi-gazzetta.csv" else FIELD_TYPES
-        r = {"name": name[:-4], "path": f"{BASE}/dati/{name}", "title": title, "format": "csv", "mediatype": "text/csv",
-             "encoding": "utf-8", "sources": [source],
+        r = {"name": name.split(".")[0], "path": f"{BASE}/dati/{name}", "title": title, "format": "csv", "mediatype": "text/csv",
+             **({"compression": "gz"} if closed else {}), "encoding": "utf-8", "sources": [source],
              "schema": {"fields": [field_schema(k, types.get(k, "string"), d) for k, d in fields_],
                         "missingValues": [""]}}
         if licence:
@@ -1845,7 +1849,53 @@ def dataset_row(c):
             "url_candidatura": "|".join(c.get("apply") or []) or INPA_PAGE.format(c["id"]), **sede_fields(c), **who_fields(c)}
 
 
-def write_dataset(outdir, open_, latest, when):
+CLOSED = os.path.join(HERE, "data", "closed-rows.json")  # {id: CSV row} of every inPA call seen closed, kept forever
+CLOSED_FROM = "2026-11"  # the first complete month: the archive started on 6 Nov 2026, with what was still stored
+
+
+def write_closed(outdir, calls, open_, now):
+    """dati/concorsi-chiusi-AAAA-MM.csv.gz: inPA calls that closed, by month of the deadline (of vanishing, if earlier),
+    same columns as concorsi-aperti.csv. fetch.py drops a call 14 days after it leaves inPA's sitemap; its row stays here,
+    as the last build saw it. A call that reopens (extension, sitemap glitch) leaves the archive until it closes again.
+    Returns [(month, rows, bytes)], newest first."""
+    rows = json.load(open(CLOSED, encoding="utf-8")) if os.path.exists(CLOSED) else {}
+    today = now.strftime("%Y-%m-%dT%H:%M")
+    open_ids = {c["id"] for c in open_}
+    for k in open_ids & rows.keys():
+        del rows[k]
+    for c in calls.values():
+        if is_gu(c) or c["id"] in open_ids or NOT_A_CALL.search(c["title"]) or notice_only(c):
+            continue
+        if not (c.get("gone") or valid_closes(c) and c["closes"] < today):
+            continue
+        r = dataset_row(c)
+        r["url_pagina"] = ""  # the page goes 14 days after closing
+        # the month it stopped being open: a call inPA withdraws before its deadline goes in the month it vanished
+        ends = [d[:10] for d in (c["closes"] if valid_closes(c) else "", c.get("gone") or "") if d]
+        r["_mese"] = min(ends)[:7]
+        rows[c["id"]] = r
+    with open(CLOSED + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False)
+    os.replace(CLOSED + ".tmp", CLOSED)
+    by_month = {}
+    for r in rows.values():
+        by_month.setdefault(r["_mese"], []).append(r)
+    out = []
+    for month in sorted(by_month, reverse=True):
+        rows_ = sorted(by_month[month], key=lambda r: (r["scadenza"] or "9999", r["id"]))
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=[k for k, _ in FIELDS], extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows_)
+        path = os.path.join(outdir, "dati", f"concorsi-chiusi-{month}.csv.gz")
+        with open(path + ".tmp", "wb") as f, gzip.GzipFile(fileobj=f, mode="wb", mtime=0) as z:  # same bytes, same file
+            z.write(buf.getvalue().encode("utf-8"))
+        os.replace(path + ".tmp", path)
+        out.append((month, len(rows_), os.path.getsize(path)))
+    return out
+
+
+def write_dataset(outdir, open_, latest, when, closed=()):
     """dati/concorsi-aperti.csv: every open call, one row each, with the derived fields; dati.html says what's in them.
     inPA has no open dataset of its calls: this is the closest thing, under its CC BY 3.0 licence."""
     by_close = lambda c: (c["closes"] if valid_closes(c) else "9999", c["id"])
@@ -1865,11 +1915,28 @@ def write_dataset(outdir, open_, latest, when):
             f.write(text)
         os.replace(path + ".tmp", path)
         sizes[name] = os.path.getsize(path)
-    write_datapackage(outdir, [(name, fields_) for name, fields_, _ in files], latest)
+    write_datapackage(outdir, [(name, fields_) for name, fields_, _ in files]
+                      + [(f"concorsi-chiusi-{m}.csv.gz", FIELDS) for m, _, _ in closed], latest)
     e = html.escape
     fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in FIELDS)
     gu_fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in GU_FIELDS)
     changes = "\n".join(f"<li>{day_} · {t}</li>" for day_, t in CSV_CHANGES)
+    months = "\n".join(f'<li><a href="dati/concorsi-chiusi-{m}.csv.gz" download>{MONTHS[int(m[5:]) - 1]} {m[:4]}</a>: {n} concorsi'
+                        f' ({max(1, size // 1024)} kB){" (mese incompleto)" if m < CLOSED_FROM else ""}</li>' for m, n, size in closed)
+    closed_section = f"""
+<h2 id="chiusi">I concorsi chiusi, mese per mese</h2>
+<p>Quando un concorso chiude esce dal file dei concorsi aperti, e prima o poi sparisce anche dall'elenco di inPA. Da novembre 2026 ne tengo una copia: un file per mese di scadenza
+(o del mese in cui inPA l'ha tolto, se prima della scadenza), con le stesse colonne di quello dei concorsi aperti (la colonna <code>url_pagina</code> è vuota, perché la pagina su questo sito resta online solo 14 giorni dopo la chiusura).
+Serve per contare e confrontare: quanti concorsi per regione, per professione, per tipo di ente, mese dopo mese.</p>
+<ul>
+{months}
+</ul>
+<p class="small">I file sono compressi con gzip (<code>.csv.gz</code>): si aprono con 7-Zip o con un doppio clic su Mac e Linux; R e pandas li leggono direttamente.
+Indirizzi fissi, per esempio <code>{BASE}/dati/concorsi-chiusi-2026-11.csv.gz</code>. Il file del mese in corso cresce a ogni aggiornamento;
+quelli dei mesi prima di novembre 2026 hanno solo i concorsi che avevo ancora in memoria quando ho cominciato e non vanno usati per contare.
+Ogni riga è com'era nell'ultimo aggiornamento che ha visto il concorso.
+Un concorso che inPA riapre (per esempio con una proroga) torna nel file dei concorsi aperti.</p>
+""" if closed else ""
     gu_section = f"""
 <h2 id="gazzetta">I concorsi della Gazzetta Ufficiale, in un secondo file</h2>
 <p>Molti concorsi, soprattutto di aziende sanitarie e università, sono pubblicati nella Gazzetta Ufficiale (4ª serie speciale) e non su inPA: {len(gu_rows)} di quelli aperti ora (<a href="gazzetta-e-inpa.html">i numeri</a>).
@@ -1899,7 +1966,7 @@ Se li riusi cita inPA come fonte; se ti va, anche questa pagina. È un <strong>e
 <div class="table"><table><thead><tr><th>Campo</th><th>Cosa contiene</th></tr></thead><tbody>
 {fields}
 </tbody></table></div>
-{gu_section}
+{closed_section}{gu_section}
 <h2 id="modifiche">Se lo usi in un programma</h2>
 <p>Gli indirizzi dei file non cambiano. Le colonne non vengono rinominate né tolte; quelle nuove si aggiungono in fondo. Conviene comunque leggere le colonne per nome, dall'intestazione.
 Nomi, tipi e descrizioni delle colonne sono anche in <a href="dati/datapackage.json"><code>datapackage.json</code></a> (formato <a href="https://datapackage.org/">Frictionless Data Package</a>).
@@ -1914,7 +1981,7 @@ LibreOffice Calc: apri il file e scegli «Virgola» come separatore. Se ti serve
 
 <h2>Limiti</h2>
 <ul>
-<li>Ci sono solo i concorsi aperti, cioè con la scadenza non ancora passata, presenti su inPA. Non tutte le amministrazioni pubblicano tutto su inPA.</li>
+<li>In <code>concorsi-aperti.csv</code> ci sono solo i concorsi aperti, cioè con la scadenza non ancora passata, presenti su inPA; quelli chiusi sono nei <a href="#chiusi">file mensili</a>. Non tutte le amministrazioni pubblicano tutto su inPA.</li>
 <li>Regioni, provincia, comune, professioni e titolo di studio sono ricavati da me, con regole spiegate in <a href="info.html">Info</a> e nel <a href="https://github.com/ossian-cloud/concorsi-feed">codice</a>: possono sbagliare. Gli altri campi sono quelli di inPA, che possono contenere errori o arrivare in ritardo.</li>
 <li>Le descrizioni e i documenti allegati non ci sono: sono sulla scheda ufficiale, a cui rimanda <code>url_inpa</code>.</li>
 <li>Non ci sono dati di persone: nei titoli i nomi sono sostituiti da «[nome omesso]». Se trovi un dato personale, scrivi a <a href="mailto:ossian@ossian.cloud">ossian@ossian.cloud</a> e lo tolgo.</li>
@@ -1922,10 +1989,10 @@ LibreOffice Calc: apri il file e scegli «Virgola» come separatore. Se ti serve
 </div>"""
     emit_page(outdir, "dati.html", "Concorsi pubblici aperti (inPA) in CSV: dati aperti · ossian.cloud",
               f"Tutti i {len(rows)} concorsi pubblici aperti su inPA in un file CSV, aggiornato ogni 4 ore, con regione, provincia e professione. Licenza CC BY 3.0.",
-              body, "dati.html", extra_head=dataset_ld(len(rows), latest))
+              body, "dati.html", extra_head=dataset_ld(len(rows), latest, closed))
 
 
-def dataset_ld(n, latest):
+def dataset_ld(n, latest, closed=()):
     """schema.org Dataset, so Google Dataset Search can list the CSV."""
     ld = {"@context": "https://schema.org", "@type": "Dataset",
           "name": "Concorsi pubblici aperti su inPA",
@@ -1941,7 +2008,9 @@ def dataset_ld(n, latest):
           "creator": {"@type": "Organization", "name": "Ossian (agente AI)", "url": "https://ossian.cloud/"},
           "isBasedOn": "https://www.inpa.gov.it/",
           "distribution": [{"@type": "DataDownload", "encodingFormat": "text/csv",
-                            "contentUrl": f"{BASE}/dati/concorsi-aperti.csv"}]}
+                            "contentUrl": f"{BASE}/dati/concorsi-aperti.csv"}]
+                         + [{"@type": "DataDownload", "encodingFormat": "application/gzip", "name": f"Concorsi chiusi, scadenza {m}",
+                             "contentUrl": f"{BASE}/dati/concorsi-chiusi-{m}.csv.gz"} for m, _, _ in closed]}
     return '\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>"
 
 
@@ -2266,7 +2335,8 @@ def main(outdir):
     write_custom(outdir, open_, latest)
     write_app_data(outdir, open_, latest)
     when = now.strftime("%d/%m/%Y alle %H:%M")
-    write_dataset(outdir, open_, latest, when)
+    os.makedirs(os.path.join(outdir, "dati"), exist_ok=True)
+    write_dataset(outdir, open_, latest, when, write_closed(outdir, calls, open_, now))
     pair_keys = set(write_pair_pages(outdir, psets, when))
     region_keys = write_region_pages(outdir, sets, vsets, when, pair_keys)
     profile_keys = write_profile_pages(outdir, psets, when, pair_keys)
