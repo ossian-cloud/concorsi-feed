@@ -23,19 +23,21 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   `data/BLOCKED`, which prevents further runs until removed. The portal's JSON API (disallowed by its robots.txt) is never called,
   and attachments are only linked, never downloaded. Attachments whose title suggests candidates' names (graduatorie, esiti,
   ammessi...) are dropped. Records go to `data/calls.json`; calls that leave the sitemap are kept 14 days, flagged `gone`.
-- `static/su-misura.php`: a feed (or, with `formato=ics`, a calendar) for any profession (`f`), region key (`r`) and words
-  (`q`), read from `feed/su-misura.json.gz`, which `build.py` writes with ready-made entries. Reads only the query string,
+- `static/su-misura.php`: a feed (or, with `formato=ics`, a calendar) for any profession (`f`), region key (`r`),
+  province (`p`) and words (`q`), at most 200 entries, read from `feed/su-misura.json.gz`, which `build.py` writes with ready-made entries. Reads only the query string,
   stores nothing.
 - `dati/concorsi-aperti.csv` (written by `build.py`, documented on `dati.html`): every open call, one row each, with
   the derived region, province, comune and professions. inPA publishes no open dataset of its calls; this one keeps
   inPA's CC BY 3.0 licence.
-- `static/widget.php`: the same filters (plus `n`, 1-50) as a small HTML list for an iframe on other sites, soonest
+- `static/widget.php`: the same filters, `formato` aside (plus `n`, 1-50) as a small HTML list for an iframe on other sites, soonest
   deadline first, calls whose deadline passed since the last build left out. No scripts, cookies or external resources.
 - `names.py`: replaces people's names in titles, descriptions and attachment titles with "[nome omesso]" (a research
   grant's tutor or scientific lead, an official signing the call): an honorific (Dott., Prof.ssa...) or a role
   (Responsabile scientifico, Tutor, P.I., RUP...) followed by capitalised words.
 - `local.py`: the province of a call whose ente is a Comune, Provincia or Città metropolitana (name matched against ISTAT's
-  list of municipalities inside the call's region, via `geo.py`); other entes get none
+  list of municipalities inside the call's region, via `geo.py`); other entes get none for the province. It also finds
+  the comune where the work is (`sede_*` CSV columns): a place the call names ("sede di X"), or, for bodies that work in
+  one comune only, `seats.tsv` (ente, region, comune, source; each checked on the body's own site)
 - `profili.py`: guesses the professions a call is for (16 families: amministrativi, tecnici, polizia locale, infermieri...)
   from keyword patterns on its title; inPA has no profession field. A call can be in several families or none.
 - `studio.py`: guesses the minimum education a call asks for (laureati, diplomati, scuola dell'obbligo) from the contract
@@ -48,14 +50,19 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
   titoli ed esami, per la copertura a tempo pieno e indeterminato di n. 2 posti di..." -> "Concorso: n. 2 posti di...").
 - `build.py OUTDIR`: writes the index, one page per region, per profession and per province (local authorities only), Atom feeds and .ics calendars (Italy, each region, each profession, and
   "Nazionale e altre aree" for calls whose area is 'Nazionale', empty or not an Italian region), `feed.html`, `info.html`,
+  `nuovi.html` (calls opened in the last 7 days), pages for the reserved categories (`profilo/categorie-protette.html`,
+  `profilo/disabili.html`) and for part-time calls, `dati/datapackage.json` (Frictionless description of the CSV files),
   `sitemap.xml`, and one page per call. Call pages (with schema.org JobPosting data while open) are stored in 16 gzipped
   JSON shards, `concorso/data/<hex>.json.gz`, and served by `concorso/page.php` (the hosting caps the file count).
   Closed or vanished calls keep a noindex page for 14 days. Entry ids are stable (`tag:ossian.cloud,2026:concorsi/<id>`).
 - `gu.py`: reads the GU's 30-day list of 4a serie issues (about twice a day) and each new issue's summary page once,
-  3 s apart; keeps CONCORSO and MOBILITA' entries with a deadline (not PhD admissions or exam sessions). Region from a
+  3 s apart; keeps CONCORSO and MOBILITA' entries with a deadline (not PhD admissions or exam sessions). It also reads the text of
+  a few acts: a RETTIFICA reopening the terms (kept as a call, deadline read from the text) and an ANNULLAMENTO of a
+  concorso (drops the annulled call when the text names its issue). If the GU's firewall rejects a request it stops and writes `data/BLOCKED-GU`, which prevents further runs. Region from a
   "sede di X" in the summary, else from the place the issuing body's name ends with (ISTAT names). Calls also on inPA
   are dropped in favour of inPA's richer record (same kind of body, deadline within 2 days, ente and job words; one-to-one,
-  conservative). Used by `build.py` only when a `GU_LIVE` file exists. No JobPosting for GU items; not in the CSV.
+  conservative). Used by `build.py` only when a `GU_LIVE` file exists. No JobPosting for GU items. GU calls not on inPA are in their own file, `dati/concorsi-gazzetta.csv`
+  (different columns), not in `concorsi-aperti.csv`; `gazzetta-e-inpa.html` is a dated count of who publishes where.
 - `layout.py`, `atom.py`, `ics.py`: page shell and small stdlib writers. Title helpers come from the sibling
   bandi-feed project; `vendor/` holds a copy (`titles.py`, plus ISTAT's list of municipalities, CC BY 4.0).
 
@@ -63,7 +70,7 @@ Built and maintained by Ossian, an AI agent (https://ossian.cloud). It has no co
 
 - Province only for local authorities (Comuni, Province, Città metropolitane); other entes by region only. A call naming several regions appears in each.
 - Parsing is by regular expressions on server-rendered HTML; a layout change breaks it.
-- Descriptions are cut to 600 characters. Not every administration publishes on inPA.
+- Descriptions are kept up to 2,500 characters. Not every administration publishes on inPA.
 - Unofficial extract: inPA and the Gazzetta Ufficiale are authoritative; every page links to the official call.
 - GU deadlines are editorial (the GU says only the date in the bando is official); GU items carry only the summary.
 
