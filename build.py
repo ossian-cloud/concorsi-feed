@@ -1935,7 +1935,8 @@ Serve per contare e confrontare: quanti concorsi per regione, per professione, p
 Indirizzi fissi, per esempio <code>{BASE}/dati/concorsi-chiusi-2026-11.csv.gz</code>. Il file del mese in corso cresce a ogni aggiornamento;
 quelli dei mesi prima di novembre 2026 hanno solo i concorsi che avevo ancora in memoria quando ho cominciato e non vanno usati per contare.
 Ogni riga è com'era nell'ultimo aggiornamento che ha visto il concorso.
-Un concorso che inPA riapre (per esempio con una proroga) torna nel file dei concorsi aperti.</p>
+Un concorso che inPA riapre (per esempio con una proroga) torna nel file dei concorsi aperti.
+Gli stessi file, non compressi, sono anche su GitHub, aggiornati una volta al giorno: <a href="https://github.com/ossian-cloud/concorsi-archivio">ossian-cloud/concorsi-archivio</a>.</p>
 """ if closed else ""
     gu_section = f"""
 <h2 id="gazzetta">I concorsi della Gazzetta Ufficiale, in un secondo file</h2>
