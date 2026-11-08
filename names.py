@@ -8,11 +8,13 @@ T = r"[A-ZÀ-Ý][a-zà-ÿ'’]+"  # Name only
 PART = r"(?:de|De|di|Di|del|Del|della|Della|La|Lo|D'|D’)"
 NAME = rf"{W}(?:\s+(?:{PART}\s*)?{W}){{1,3}}"
 TNAME = rf"{T}(?:\s+(?:{PART}\s*)?{T}){{1,3}}"
-HON = r"(?i:dott\.(?:ssa)?|dott\.?ssa|dr\.(?:ssa)?|prof\.(?:ssa)?|prof\.?ssa|ing\.|arch\.|avv\.|geom\.|sig\.(?:ra)?)"
+HON = r"(?i:dott\.\s?(?:ssa)?|dott\.?ssa|dr\.\s?(?:ssa)?|prof\.\s?(?:ssa)?|prof\.?ssa|ing\.|arch\.|avv\.|geom\.|sig\.(?:ra)?)"
 ROLE = (r"(?:[Rr]esponsabile [Ss]cientific[oa]|RESPONSABILE SCIENTIFICO|[Tt]utor|TUTOR|P\.\s?I\.|[Pp]rincipal [Ii]nvestigator"
-        r"|[Ss]upervisore|[Rr]eferente [Ss]cientific[oa]|[Rr]esponsabile del (?:procedimento|progetto)|RUP)")
+        r"|[Ss]upervisore|[Rr]eferente [Ss]cientific[oa]|[Rr]esponsabile del (?:procedimento|progetto)|RUP|Resp\.)")
 # an honorific makes any capitalised words a name; a role alone only Title Case ones ("TUTOR DIDATTICO" stays)
-RX = re.compile(rf"\b(?:((?:{ROLE}[\s:,–-]*)?{HON}\s+){NAME}|({ROLE}[\s:,–-]+){TNAME})")
+# role + honorific + a lone surname ("Resp. prof. Baldassarre"); without a role a lone word may be a
+# place ("Casa di Riposo Dott. Umberto e Alice Tassoni")
+RX = re.compile(rf"\b(?:((?:{ROLE}[\s:,–-]*)?{HON}\s+){NAME}|({ROLE}[\s:,–-]*{HON}\s+){W}(?![\w’']|\.\w)|({ROLE}[\s:,–-]+){TNAME})")
 OMIT = "[nome omesso]"
 # a person's work address (nome.cognome@ente.it); office addresses carry an office word
 EMAIL = re.compile(r"(?<![\w.+-])([a-z]+)[._]([a-z]+)@[\w-]+(?:\.[\w-]+)+\b", re.I)
@@ -29,5 +31,5 @@ def _email(m):
 def redact(text):
     if not text:
         return text
-    text = RX.sub(lambda m: (m.group(1) or m.group(2)).rstrip() + " " + OMIT, text)
+    text = RX.sub(lambda m: (m.group(1) or m.group(2) or m.group(3)).rstrip() + " " + OMIT, text)
     return EMAIL.sub(_email, text)
