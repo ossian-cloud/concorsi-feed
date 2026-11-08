@@ -337,6 +337,10 @@ GU_REOPEN_NOTE = ("<br><small>(calcolata da me dal testo dell'avviso di riapertu
 GU_PAGE_NOTE = ("Questo concorso è pubblicato nella Gazzetta Ufficiale, 4ª serie speciale, e non risulta tra i concorsi di inPA che leggo (il confronto è automatico: qualche doppione può sfuggire). "
                 "Qui c'è solo il sommario della Gazzetta (testo non autentico, riprodotto gratuitamente): requisiti, "
                 "modalità e scadenza ufficiale sono nel bando, che trovi in Gazzetta o sul sito dell'ente.")
+GU_PAGE_NOTE_TEXT = ("Questo concorso è pubblicato nella Gazzetta Ufficiale, 4ª serie speciale, e non risulta tra i concorsi di inPA che leggo (il confronto è automatico: qualche doppione può sfuggire). "
+                     "Qui c'è il testo dell'avviso in Gazzetta (testo non autentico, riprodotto gratuitamente): requisiti completi "
+                     "e modalità sono nel bando, che trovi in Gazzetta o sul sito dell'ente.")
+GU_TEXT_NOTE = '<p class="small">Testo dell\'avviso nella Gazzetta Ufficiale, 4ª serie speciale: testo non autentico, riprodotto gratuitamente. Fa fede il bando.</p>\n'
 GU_LEAD = (' e nella <a href="info.html#gazzetta">Gazzetta Ufficiale</a>, 4ª serie speciale, dove ci sono molti concorsi '
            "della sanità, delle università e della ricerca che su inPA mancano,")
 GU_INFO = f"""<h2 id="gazzetta">Concorsi dalla Gazzetta Ufficiale</h2>
@@ -347,7 +351,7 @@ Il conteggio completo, per tipo di ente: <a href="gazzetta-e-inpa.html">quanti c
 <ul>
 <li>Leggo il sommario di ogni numero (esce il martedì e il venerdì) dalle pagine pubbliche della Gazzetta, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Tengo solo le voci «concorso» e «mobilità» con una scadenza: niente graduatorie, esiti, diari delle prove, ammissioni ai dottorati o sessioni di esami di abilitazione.</li>
 <li>Le <b>riaperture dei termini</b> sono elencate come concorsi, con «Termini riaperti» nel titolo. Il sommario della Gazzetta non dà la loro scadenza: la ricavo dal testo dell'avviso (di solito 30 giorni dalla pubblicazione, spostati al primo giorno non festivo), e la pagina lo dice. Quando la Gazzetta pubblica l'<b>annullamento</b> di un concorso e indica il numero in cui era uscito, tolgo quel concorso dagli elenchi.</li>
-<li>Di ogni concorso c'è solo il <b>sommario</b> della Gazzetta: ente, una riga su cosa si cerca, la scadenza. Requisiti e modalità per candidarsi sono nel bando, sulla Gazzetta o sul sito dell'ente: ogni voce rimanda alla pagina della Gazzetta.</li>
+<li>Di ogni concorso c'è il <b>sommario</b> della Gazzetta (ente, una riga su cosa si cerca, la scadenza) e, per quelli ancora aperti, il <b>testo dell'avviso</b> pubblicato in Gazzetta, che spesso dice l'ora di scadenza e come presentare la domanda. Il bando completo, con tutti i requisiti, è sul sito dell'ente: ogni voce rimanda alla pagina della Gazzetta.</li>
 <li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Controllala sempre.</li>
 <li>La <b>regione</b> la ricavo dal luogo nel nome dell'ente («… di Seriate», «… - Chieri»), cercandolo nell'elenco dei comuni dell'ISTAT; gli enti senza un luogo nel nome (Banca d'Italia, ministeri) vanno in «{NAZ_LABEL}». La provincia c'è solo per i Comuni, come per inPA.</li>
 <li>Se lo stesso concorso è anche su inPA, mostro solo la scheda di inPA, che è più completa. Il confronto (stesso ente, stessa scadenza, stessa figura) è prudente: qualche doppione può restare.</li>
@@ -799,7 +803,7 @@ NOT_A_JOB = re.compile(
     r"|\bper\s+l['’]\s*albo\b|\belenco\s+di\s+esperti\b|noleggio con conducente"  # lists of experts; taxi/NCC licences
     r"|\bnomin[ae]\b(?!\s+(a\s+|del\s+|di\s+)?(direttor|dirigent))|nucleo di valutazione|organismo indipendente di valutazione|\bo\.?i\.?v\.?\b|revisor[ei] dei conti|organo di revisione"
     r"|collegio (dei revisori|sindacale)|component[ei] (esterni? |esperti? )?((di|della|delle) )?commission|commissari[oe]? (di|d['’]) ?esame"
-    r"|corso di dottorato|bors[ae] di studio|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
+    r"|corso di dottorato|bors[ae] di studio|bors[ae] di alta formazione|assegn[oi] di ricerca|bors[ae] di ricerca|profili vari|vari profili|diversi profili"
     r"|" + TRAINEES + "|" + INTERNS, re.I)
 
 
@@ -988,13 +992,25 @@ def base_job(c):
     return _JOBS[key]
 
 
+# a GU notice's contact and how-to-apply paragraphs name the office's town, not the workplace
+# ("rivolgersi all'ufficio concorsi, sede operativa di Rimini", 8 Nov 2026)
+GU_CONTACT = re.compile(r"rivolger|informazion|uffici|domand|\btel\.|e-mail|\bpec\b|indirizz|recapit|spedit|inviat", re.I)
+
+
+def seat_desc(c):
+    desc = c.get("desc") or ""
+    return "\n".join(p for p in desc.split("\n") if not GU_CONTACT.search(p)) if is_gu(c) else desc
+
+
 def job_posting(c, url):
     """schema.org JobPosting (Google job search) for an open call with a usable deadline, if it is one job."""
     full = " ".join(c["title"].split())
     if NOT_A_JOB.search(full) or NOT_OPEN.search(full) or c.get("_aud", audience(c)) == "notopen":
         return ""
     facts = [("Ente", ente_name(c)), ("Area geografica", region_text(c)), ("Sede di lavoro", c.get("_seat_src") and f"{c['_seat']} ({c['_seat_src']})"), ("Posti", posts_text(c)),
-             ("Valutazione", c.get("eval")), ("Scadenza", c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
+             ("Valutazione", c.get("eval")),
+             ("Scadenza", day(c["closes"]) + " (indicata dalla Gazzetta Ufficiale: la data e l'ora ufficiali sono nel bando)" if is_gu(c)
+              else c["closes"][11:] and day(c["closes"]) + " " + c["closes"][11:])]
     e = html.escape
     # The same text the page shows: paragraphs kept, shouting sentence-cased.
     text = c.get("desc") or titles.sentence_case(full)
@@ -1041,7 +1057,8 @@ def job_posting(c, url):
         else:
             val["value"] = hi
         ld["baseSalary"] = {"@type": "MonetaryAmount", "currency": "EUR", "value": val}
-    ld.update(identifier={"@type": "PropertyValue", "name": "inPA", "value": c["id"]}, directApply=False, url=url)
+    ld.update(identifier={"@type": "PropertyValue", "name": "Gazzetta Ufficiale", "value": c["gu_code"]} if is_gu(c) else
+              {"@type": "PropertyValue", "name": "inPA", "value": c["id"]}, directApply=False, url=url)
     return ('\n<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>")
 
 
@@ -1170,7 +1187,8 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
         buttons.append(f'<a class="btn ghost" href="{e(c["pa_url"])}">Sito dell\'ente</a>')
     paras = "".join(f"<p>{e(p)}</p>\n" for p in paragraphs(desc_txt))
-    description = (f"<h2>Descrizione</h2>\n{paras}" + ('<p class="small">Testo abbreviato: la descrizione completa è sulla scheda ufficiale.</p>\n'
+    description = (f"<h2>Descrizione</h2>\n{paras}" + (GU_TEXT_NOTE if is_gu(c) else
+                   '<p class="small">Testo abbreviato: la descrizione completa è sulla scheda ufficiale.</p>\n'
                    if len(c.get("desc") or "") >= c.get("desc_max", 600) else "")) if paras else ""
     atts = c.get("attachments") or []
     attachments = ""
@@ -1229,7 +1247,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 </tbody></table></div>
 {description}{attachments}<h2>Altri concorsi</h2>
 {near_html}<div class="actions">{"".join(follow)}</div>
-<p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. {GU_PAGE_NOTE if is_gu(c) else "Fa fede la scheda su inPA, a cui ogni voce rimanda."}</p>"""
+<p class="small">Estratto non ufficiale preparato da un agente AI: i dati possono essere in ritardo o sbagliati. {(GU_PAGE_NOTE_TEXT if c.get("desc") else GU_PAGE_NOTE) if is_gu(c) else "Fa fede la scheda su inPA, a cui ogni voce rimanda."}</p>"""
     title = page_title(c, now, note)
     meta = [posts_text(c), ente_short(c, 60), region_text(c), "scadenza " + deadline_short(c) if valid_closes(c) else None,
             c.get("eval") and "valutazione: " + c["eval"].lower()]
@@ -1237,7 +1255,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     extra = ""
     if closed:
         extra = '\n<meta name="robots" content="noindex">'
-    elif valid_closes(c) and not is_gu(c):  # a GU summary is too thin for a JobPosting
+    elif valid_closes(c) and (not is_gu(c) or c.get("desc")):  # a GU summary alone is too thin: only with the notice's text
         extra = job_posting(c, url)
     return layout.page(title, desc, body, "", 1, extra, "", *source_of(c), url)
 
@@ -2308,7 +2326,7 @@ def main(outdir):
         c["_seat"] = not c["_comune"] and len(regs) == 1 and local.seat_of(c.get("ente"), regs[0]) or None
         c["_seat_src"] = None
         if not c["_comune"] and not c["_seat"] and len(regs) == 1:  # the call's own words first, then a single-site body's seat
-            where = local.seat_in_text(" ".join(c["title"].split()) + "\n" + (c.get("desc") or ""), regs[0])
+            where = local.seat_in_text(" ".join(c["title"].split()) + "\n" + seat_desc(c), regs[0])
             c["_seat"], c["_seat_src"] = (where, "indicata nel bando") if where else (local.seat_listed(c.get("ente"), regs[0]), "sede dell’ente")
             c["_seat_src"] = c["_seat"] and c["_seat_src"]
         # the province of a non-local body's one seat: only for the second list on province pages, never for feeds or filters

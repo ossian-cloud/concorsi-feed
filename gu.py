@@ -45,7 +45,7 @@ PAUSE = 3
 LIST_EVERY_H = 11  # the 30-day list is read about twice a day; issues come out on Tuesday and Friday
 KEEP_TYPES = {"CONCORSO", "MOBILITA'"}
 # typed CONCORSO but not a job: PhD admissions, sessions of professional qualification exams
-NOT_JOBS = re.compile(r"ammissione a[il]?\s+(?:\w+\s+)?cors[oi] di dottorato|\bcors[oi] di dottorato di ricerca|esami? di (?:stato|abilitazione|idoneit)|sessione d'esam", re.I)
+NOT_JOBS = re.compile(r"ammissione a[il]?\s+(?:\w+\s+)?(?:cors[oi] di )?dottorat|\bcors[oi] di dottorato di ricerca|esami? di (?:stato|abilitazione|idoneit)|sessione d'esam", re.I)
 ACT = BASE + ("/atto/concorsi/caricaArticoloDefault/originario?atto.dataPubblicazioneGazzetta={}"
              "&atto.codiceRedazionale={}&atto.tipoProvvedimento={}")
 REOPEN = re.compile(r"\briapertura (?:dei |del )?termin", re.I)
@@ -197,6 +197,57 @@ def act_text(e):
     return _acts[e["code"]]
 
 
+TEXTS = os.path.join(HERE, "data", "gu-texts.json")  # code -> the notice's own text, shown on its page (8 Nov 2026)
+TEXTS_PER_RUN = 150  # 3 s apart: under 8 minutes a run; a new issue brings about 30
+
+
+def notice_text(page):
+    """The notice as the GU prints it: a <pre> block of hard-wrapped lines, each paragraph starting with an indent.
+    Paragraphs come back one per line; None when the fragment has no text."""
+    paras = []
+    for block in re.findall(r"(?s)<pre>(.*?)</pre>", page):
+        cur = []
+        for line in html.unescape(re.sub(r"<[^>]+>", "", block)).split("\n"):
+            if re.match(r"\s{2,}\S", line) and cur:
+                paras.append(" ".join(" ".join(cur).split()))
+                cur = []
+            cur.append(line)
+        paras.append(" ".join(" ".join(cur).split()))
+    text = "\n".join(p for p in paras if p)
+    return text or None
+
+
+def fill_texts(calls):
+    """Fetch the text of open calls that lack it (newest first, capped), then put each stored text in its call's desc.
+    A text is fetched once: "" marks a notice whose fragment had none."""
+    texts = json.load(open(TEXTS, encoding="utf-8")) if os.path.exists(TEXTS) else {}
+    now = dt.datetime.now().strftime("%Y-%m-%dT%H:%M")
+    todo = sorted((c for c in calls.values() if c["gu_code"] not in texts and (c["closes"] or "") >= now),
+                  key=lambda c: c["opens"] or "", reverse=True)[:TEXTS_PER_RUN]
+    fetched = 0
+    try:
+        for c in todo:
+            kind = "RETTIFICA" if c["gu_type"] == "RIAPERTURA" else c["gu_type"]  # a reopening is a rettifica in the GU
+            texts[c["gu_code"]] = notice_text(get(ACT.format(c["opens"][:10], c["gu_code"], urllib.parse.quote(kind)))) or ""
+            fetched += 1
+    finally:  # a firewall stop keeps what was read
+        codes = {c["gu_code"] for c in calls.values()}
+        texts = {k: t for k, t in texts.items() if k in codes}
+        json.dump(texts, open(TEXTS + ".tmp", "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+        os.replace(TEXTS + ".tmp", TEXTS)
+    for c in calls.values():
+        c["desc"] = texts.get(c["gu_code"]) or None
+    if todo:
+        print(f"GU texts: fetched {fetched}, {sum(1 for c in todo if not texts.get(c['gu_code']))} empty, "
+              f"{len(texts)} stored", file=sys.stderr)
+
+
+def save_calls(calls):
+    tmp = DATA + ".tmp"
+    json.dump(calls, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+    os.replace(tmp, DATA)
+
+
 def _holiday(d):
     """Sunday or Italian national holiday: a deadline falling on one moves to the next working day."""
     y = d.year
@@ -288,7 +339,9 @@ def main():
     cancels = json.load(open(CANCELS, encoding="utf-8")) if os.path.exists(CANCELS) else {}
     last = seen.get("_listed", "")
     if last and not reread and dt.datetime.now() - dt.datetime.fromisoformat(last) < dt.timedelta(hours=LIST_EVERY_H):
-        print(f"GU: list read at {last}, less than {LIST_EVERY_H} h ago: nothing to do", file=sys.stderr)
+        print(f"GU: list read at {last}, less than {LIST_EVERY_H} h ago: no new issues to read", file=sys.stderr)
+        fill_texts(calls)
+        save_calls(calls)
         return
     listed = issues_listed(get(LIST))
     seen["_listed"] = dt.datetime.now().isoformat(timespec="minutes")
@@ -322,15 +375,15 @@ def main():
         seen[f"{d}/{n}"] = {"entries": len(entries), "fetched": dt.datetime.now().isoformat(timespec="minutes")}
     for line in apply_cancels(calls, cancels, seen):
         print(line, file=sys.stderr)
+    calls = {k: c for k, c in calls.items() if not NOT_JOBS.search(c["title"])}  # a filter change reaches stored records too
     for c in calls.values():  # a parser change reaches stored records without new requests
         c["posts"] = posts_of(c["title"])
     cut = (dt.date.today() - dt.timedelta(days=60)).isoformat()
     calls = {k: c for k, c in calls.items() if (c["closes"] or c["opens"])[:10] >= cut}
     cancels = {k: a for k, a in cancels.items() if a["date"] >= cut}
     json.dump(cancels, open(CANCELS, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
-    tmp = DATA + ".tmp"
-    json.dump(calls, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
-    os.replace(tmp, DATA)
+    fill_texts(calls)
+    save_calls(calls)
     json.dump(seen, open(ISSUES, "w", encoding="utf-8"), indent=0)
     print(f"{len(listed)} issues listed, {len(new)} new; types {kinds}; {len(calls)} GU calls stored", file=sys.stderr)
 

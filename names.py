@@ -17,13 +17,13 @@ OMIT = "[nome omesso]"
 # a person's work address (nome.cognome@ente.it); office addresses carry an office word
 EMAIL = re.compile(r"(?<![\w.+-])([a-z]+)[._]([a-z]+)@[\w-]+(?:\.[\w-]+)+\b", re.I)
 OFFICE = re.compile(r"protocoll|concors|uffic|candidat|personal|segreter|risors|selezion|info|amministr|direz|serviz"
-                    r"|cure|primari|gar[ae]|appalt|pec|posta|comune|ospedal|asl|asp|dipartim|area|settore|sanit|lavoro"
+                    r"|cure|primari|gar[ae]|appalt|pec|posta|comune|ospedal|\bas[lp]|dipartim|area|settore|sanit|lavoro"
                     r"|reclut|assunz|bandi|giovani|scuol|istitut|agenzia|regione|provincia|universit|ricerca", re.I)
 EMAIL_OMIT = "[indirizzo personale omesso: vedi il bando]"
 
 
 def _email(m):
-    return m.group() if OFFICE.search(m.group(1) + m.group(2)) else EMAIL_OMIT
+    return m.group() if OFFICE.search(m.group(1) + "." + m.group(2)) else EMAIL_OMIT  # "g.gaspa" is not an ASP (8 Nov 2026)
 
 
 def redact(text):
