@@ -237,9 +237,49 @@ def fill_texts(calls):
         os.replace(TEXTS + ".tmp", TEXTS)
     for c in calls.values():
         c["desc"] = texts.get(c["gu_code"]) or None
+        text_deadline(c)
     if todo:
         print(f"GU texts: fetched {fetched}, {sum(1 for c in todo if not texts.get(c['gu_code']))} empty, "
               f"{len(texts)} stored", file=sys.stderr)
+
+
+CLOSE_HOUR = re.compile(r"\bore\s+(\d{1,2})(?:\s*[.,:]\s*(\d{2}))?\b")
+NOT_ABOUT_APPLYING = re.compile(r"prov[ae]\b|dalle ore|orari|\btel\b|colloqui|convocazion|diario|calendario|sorteggio|commission|apertura dell[ae] (?:buste|domande)")
+HOLIDAY_ROLL = re.compile(r"festiv\w*[^.]{0,160}(?:prorogat|differit|spostat|primo giorno|giorno successivo)|giorno (?:utile )?non festivo")
+
+
+def text_deadline(c):
+    """Refine the GU's editorial deadline with the notice text, when the text is plain about it: the hour, if the
+    sentences about the applications' deadline name exactly one ("entro le ore 12,00 del ..."); and the next working
+    day, if the text says a deadline on a holiday moves forward and the date falls on a Sunday or national holiday.
+    The GU's own date is kept in gu_closes, so a parser change reaches stored records; lastmod moves when closes does."""
+    base = c.setdefault("gu_closes", c["closes"])
+    c.pop("closes_hour_text", None)
+    c.pop("closes_rolled_from", None)
+    if not base:
+        return
+    d, hour = dt.date.fromisoformat(base[:10]), base[11:]
+    low = (c.get("desc") or "").lower()
+    if low:
+        hours = set()
+        # sentences end before a capital: "art. 3", "n. 13/a" don't split one
+        for sentence in re.split(r"\.\s+(?=[A-Z])", (c.get("desc") or "").replace("\n", " ")):
+            sentence = sentence.lower()
+            if re.search(r"domand|termin|scad", sentence) and not NOT_ABOUT_APPLYING.search(sentence):
+                for h, m in CLOSE_HOUR.findall(sentence):
+                    if 0 < int(h) <= 24 and int(m or 0) < 60:  # "ore 24,00" is the end of the day; "ore 0" is ambiguous
+                        hours.add("23:59" if int(h) == 24 else f"{int(h):02d}:{m or '00'}")
+        if len(hours) == 1:
+            hour = hours.pop()
+            c["closes_hour_text"] = True
+        if HOLIDAY_ROLL.search(low) and _holiday(d):
+            c["closes_rolled_from"] = d.isoformat()
+            while _holiday(d):
+                d += dt.timedelta(days=1)
+    closes = f"{d.isoformat()}T{hour}"
+    if closes != c["closes"]:
+        c["closes"] = closes
+        c["lastmod"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def save_calls(calls):
@@ -425,6 +465,7 @@ def place_of(ente):
     "... - CHIERI", "... IN CAMPOBASSO"); (region, None) when only a region is named; (None, None) if unknown.
     ISTAT names via bandi's geo.py; a comune name shared by several regions gives nothing."""
     import geo
+    import local
     n = geo.norm(re.sub(r"[«»\"]", " ", (ente or "").replace(" - ", " DI ")))  # "ASL TO5 - CHIERI"
     if n in KNOWN:
         return KNOWN[n], None
@@ -436,13 +477,14 @@ def place_of(ente):
         for j in range(len(tail), 0, -1):  # "DESENZANO DEL GARDA", then shorter: "ROMA TOR VERGATA" -> "ROMA"
             name = " ".join(tail[:j])
             for part in [name] + (name.split(" E ") if " E " in name else []):  # "COLLEGNO E PINEROLO"
+                part = local.ALIAS.get(part.lower(), part)  # "REGGIO EMILIA" is "Reggio nell'Emilia" for ISTAT
                 reg, _ = geo.place(part, "")
                 if reg and geo._BY_COMUNE.get(geo.norm(part)):
-                    return reg, part.title()
+                    return reg, part if part in local.ALIAS.values() else part.title()
     for w, r in REGION_WORDS.items():
         if f" {w} " in f" {n} ":
             return r, None
-    import local  # a provincial capital anywhere in the name: "AZIENDA SANITARIA LOCALE AVELLINO"
+    # a provincial capital anywhere in the name: "AZIENDA SANITARIA LOCALE AVELLINO"
     found = {(r, d) for r, caps in local.CAPITALS.items() for k, d in caps.items() if f" {k} " in f" {n} "}
     if len(found) == 1:
         return found.pop()

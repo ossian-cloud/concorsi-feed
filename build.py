@@ -334,6 +334,23 @@ GU_DEADLINE_NOTE = "<br><small>(indicata dalla Gazzetta Ufficiale: la data e l'o
 # reopenings have no GU deadline: gu.py reads it from the text ("entro il trentesimo giorno successivo...")
 GU_REOPEN_NOTE = ("<br><small>(calcolata da me dal testo dell'avviso di riapertura: i giorni indicati dall'avviso a partire"
                   " dalla pubblicazione in Gazzetta, spostati al primo giorno non festivo. La data e l'ora ufficiali sono nel bando)</small>")
+
+
+def gu_deadline_note(c):
+    """Where a GU deadline comes from: the GU's date, or also my reading of the notice text (gu.text_deadline)."""
+    if c.get("gu_type") == "RIAPERTURA":
+        return GU_REOPEN_NOTE
+    hour, rolled = c.get("closes_hour_text"), c.get("closes_rolled_from")
+    if not (hour or rolled):
+        return GU_DEADLINE_NOTE
+    if not rolled:
+        why = "data indicata dalla Gazzetta Ufficiale, ora letta nel testo dell'avviso"
+    else:
+        why = (f"la Gazzetta Ufficiale indica il {day(rolled)}, giorno festivo, e l'avviso dice che in quel caso il termine passa al primo "
+               "giorno non festivo" + ("; ora letta nel testo dell'avviso" if hour else ""))
+    return f"<br><small>({why}. La data e l'ora ufficiali sono nel bando)</small>"
+
+
 GU_PAGE_NOTE = ("Questo concorso è pubblicato nella Gazzetta Ufficiale, 4ª serie speciale, e non risulta tra i concorsi di inPA che leggo (il confronto è automatico: qualche doppione può sfuggire). "
                 "Qui c'è solo il sommario della Gazzetta (testo non autentico, riprodotto gratuitamente): requisiti, "
                 "modalità e scadenza ufficiale sono nel bando, che trovi in Gazzetta o sul sito dell'ente.")
@@ -352,7 +369,7 @@ Il conteggio completo, per tipo di ente: <a href="gazzetta-e-inpa.html">quanti c
 <li>Leggo il sommario di ogni numero (esce il martedì e il venerdì) dalle pagine pubbliche della Gazzetta, una richiesta ogni 3 secondi, con un nome identificabile (OssianBot). Tengo solo le voci «concorso» e «mobilità» con una scadenza: niente graduatorie, esiti, diari delle prove, ammissioni ai dottorati o sessioni di esami di abilitazione.</li>
 <li>Le <b>riaperture dei termini</b> sono elencate come concorsi, con «Termini riaperti» nel titolo. Il sommario della Gazzetta non dà la loro scadenza: la ricavo dal testo dell'avviso (di solito 30 giorni dalla pubblicazione, spostati al primo giorno non festivo), e la pagina lo dice. Quando la Gazzetta pubblica l'<b>annullamento</b> di un concorso e indica il numero in cui era uscito, tolgo quel concorso dagli elenchi.</li>
 <li>Di ogni concorso c'è il <b>sommario</b> della Gazzetta (ente, una riga su cosa si cerca, la scadenza) e, per quelli ancora aperti, il <b>testo dell'avviso</b> pubblicato in Gazzetta, che spesso dice l'ora di scadenza e come presentare la domanda. Il bando completo, con tutti i requisiti, è sul sito dell'ente: ogni voce rimanda alla pagina della Gazzetta.</li>
-<li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Controllala sempre.</li>
+<li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Quando il testo dell'avviso indica una sola ora per le domande («entro le ore 12,00») la aggiungo; quando la data cade di domenica o in un festivo e il testo dice che il termine passa al primo giorno non festivo, la sposto. La pagina dice cosa viene dalla Gazzetta e cosa ho letto io nel testo. Controllala sempre.</li>
 <li>La <b>regione</b> la ricavo dal luogo nel nome dell'ente («… di Seriate», «… - Chieri»), cercandolo nell'elenco dei comuni dell'ISTAT; gli enti senza un luogo nel nome (Banca d'Italia, ministeri) vanno in «{NAZ_LABEL}». La provincia c'è solo per i Comuni, come per inPA.</li>
 <li>Se lo stesso concorso è anche su inPA, mostro solo la scheda di inPA, che è più completa. Il confronto (stesso ente, stessa scadenza, stessa figura) è prudente: qualche doppione può restare.</li>
 <li>I concorsi della Gazzetta non sono nel file CSV, che contiene solo i dati di inPA con la loro licenza.</li>
@@ -474,12 +491,17 @@ def app_job(c):
 
 
 def doctor_job(job, c):
-    """"Dirigente medico" alone, or no job for a doctor's post, plus its one discipline: "Dirigente medico – Urologia"."""
+    """"Dirigente medico" alone, or no job for a doctor's post, plus its one or two disciplines: "Dirigente medico – Urologia",
+    "Dirigente medico – Pediatria e neonatologia" (more read as a list of posts, not a job)."""
     full = " ".join(c["title"].split())
     if job and job.lower() not in ("dirigente medico", "dirigenti medici") or not job and not re.search(r"\bdirigen(?:te|ti|za)\s+medic", full, re.I):
         return job
     ds = discipline.disciplines_of(c)
-    return f"Dirigente medico – {discipline.LABEL[ds[0]]}" if len(ds) == 1 and not re.search(r"\bvari[ae]\s+disciplin", full, re.I) else job
+    if not ds or len(ds) > 2 or re.search(r"\bvari[ae]\s+disciplin", full, re.I):
+        return job
+    low = full.lower()
+    ds = sorted(ds, key=lambda d: (low.find(discipline.LABEL[d].lower()) % (len(low) + 1)))  # in the title's order; unfound last
+    return "Dirigente medico – " + " e ".join([discipline.LABEL[ds[0]]] + [discipline.LABEL[d].lower() for d in ds[1:]])
 
 
 DESC_TAIL = re.compile(r"(?:\s+|-)(?:[PF]\.T\.?|C\.C\.N\.L\.?|liv\b.*|area\b.*|cat\b.*|codice\b.*)$", re.I)
@@ -908,7 +930,7 @@ def audience(c):
     full = " ".join(c["title"].split())
     if NOT_OPEN.search(full) or DESC_NOT_OPEN.search(" ".join((c.get("desc") or "")[:600].split())):
         return "notopen"
-    if is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):
+    if c.get("gu_type") == "MOBILITA'" or is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):  # the GU's own type
         return "mobility"
     if is_reserved(full):
         return "reserved"
@@ -1166,7 +1188,8 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
     facts = "\n".join(f"<tr><th>{k}</th><td>{e(v)}</td></tr>" for k, v in rows if v)
     if valid_closes(c):
         when = "" if closed or not countdown(c, today) else f" ({countdown(c, today)})"
-        at = f"<b>{day(c['closes'])}</b>{when}{GU_REOPEN_NOTE if c.get('gu_type') == 'RIAPERTURA' else GU_DEADLINE_NOTE}" if is_gu(c) else f"<b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}"
+        at = (f"<b>{day(c['closes'])}{' alle ' + c['closes'][11:] if c.get('closes_hour_text') else ''}</b>{when}{gu_deadline_note(c)}"
+              if is_gu(c) else f"<b>{day(c['closes'])} alle {c['closes'][11:]}</b>{when}")
         facts += f"\n<tr><th>Scadenza</th><td>{at}{FAR_NOTE if far_deadline(c) else ""}</td></tr>"
     else:
         facts += "\n<tr><th>Scadenza</th><td>non indicata: controlla la scheda ufficiale</td></tr>"
@@ -1745,7 +1768,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
     ("titolo_studio_stimato", "Titolo di studio minimo stimato, separati da «|»: una stima; vuoto se non riconosciuto"),
     ("posti", "Numero di posti, se il sommario lo indica"),
     ("pubblicazione", "Data del numero della Gazzetta (AAAA-MM-GG)"),
-    ("scadenza", "Scadenza indicata dalla redazione della Gazzetta (AAAA-MM-GG): quella ufficiale, con l'ora, è nel bando"),
+    ("scadenza", "Scadenza indicata dalla redazione della Gazzetta (AAAA-MM-GG), spostata al primo giorno non festivo se cade di domenica o in un festivo e il testo dell'avviso dice che il termine slitta: quella ufficiale, con l'ora, è nel bando"),
     ("numero_gu", "Numero della 4ª serie speciale (per esempio «n. 72 del 18/09/2026»)"),
     ("url_gu", "Avviso nella Gazzetta Ufficiale: fa fede questo"),
     ("url_pagina", "Pagina del concorso su ossian.cloud"),
@@ -1755,10 +1778,12 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
     ("sede_sigla_provincia", "Sigla della provincia di sede_comune (per esempio TO), dall'elenco ISTAT dei comuni"),
     ("sede_codice_istat", "Codice ISTAT a sei cifre di sede_comune (per esempio 001272), dall'elenco ISTAT dei comuni"),
     ("categorie_protette", "Riserva per le categorie protette (legge 68/1999) dichiarata nel titolo: «riservato» (bando interamente riservato), «posti riservati» (alcuni posti), vuoto se il titolo non la nomina. Una stima dal titolo: molti concorsi applicano la riserva senza scriverlo lì"),
+    ("ora_scadenza", "Ora della scadenza (HH:MM, ora di Roma) quando il testo dell'avviso in Gazzetta ne indica una sola per le domande (per esempio «entro le ore 12,00»); vuoto altrimenti"),
 ]
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuova colonna in fondo <code>ora_scadenza</code>, l'ora letta nel testo dell'avviso; <code>scadenza</code> passa al primo giorno non festivo quando cade di domenica o in un festivo e il testo dice che il termine slitta (71 avvisi). Le altre colonne non cambiano."),
     ("2026-11-06", "Nuovi file mensili <code>concorsi-chiusi-AAAA-MM.csv.gz</code> con i concorsi chiusi, stesse colonne di <code>concorsi-aperti.csv</code> (compressi con gzip). <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-11-03", "Aggiunta in fondo a entrambi i file la colonna <code>categorie_protette</code>: «riservato» o «posti riservati» quando il titolo dichiara una riserva per le categorie protette (legge 68/1999). Le colonne esistenti non cambiano."),
     ("2026-11-02", "Aggiunte in fondo a entrambi i file le colonne <code>sede_comune</code>, <code>sede_fonte</code>, <code>sede_sigla_provincia</code> e <code>sede_codice_istat</code>: il comune dove si lavora, quando se ne ricava uno solo, con il codice ISTAT per unirlo ad altri dati. Le colonne esistenti non cambiano."),
@@ -1844,7 +1869,8 @@ def gu_dataset_row(c):
             "pubblicazione": (c.get("opens") or "")[:10], "scadenza": c["closes"][:10] if valid_closes(c) else "",
             "numero_gu": c.get("gu_issue") or "", "url_gu": c.get("gu_url") or "",
             "url_pagina": f"{BASE}/{page_rel(c)}",
-            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"]), **sede_fields(c), **who_fields(c)}
+            "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"]), **sede_fields(c), **who_fields(c),
+            "ora_scadenza": c["closes"][11:] if valid_closes(c) and c.get("closes_hour_text") else ""}
 
 
 def num(v):
