@@ -282,6 +282,96 @@ def text_deadline(c):
         c["lastmod"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+
+# A web address in a GU text: "https://pica.cineca.it/uniss/", "www.ausl.bologna.it", "selezionionline.cnr.it". Not the
+# domain of an e-mail or PEC address.
+WEB = re.compile(r"(?<![@\w.-])(?:https?://[^\s,;()<>«»\"]+|www?\.[^\s,;()<>«»\"]+|(?:[a-z0-9-]+\.)+(?:it|eu|org|com|net)\b(?:/[^\s,;()<>«»\"]*)?)", re.I)
+# The GU wraps lines inside a path and the text re-joins them with a space ("docenti/rice rcatori"): a lowercase,
+# space-free token right after a path that doesn't end in "/" continues it, unless it's a word that can follow a link.
+WRAPPED = re.compile(r" ([a-z0-9_-]+(?:[./#?=&%][\w.#?=&%-]*)*/?)(?=[\s,;)»]|[.:]?(?:\s|$))")
+NOT_WRAPPED = set("a ad al alla alle allo agli da dal dalla dalle dai dei del della delle di e ed il in la le lo gli nel nella "
+                  "nelle nei negli o oppure per su sul sulla sui che ove dove entro sezione link pagina area voce menu tramite "
+                  "con nonche sotto sito oltre anche presso previa ovvero ossia cui come quale non ai alle".split())
+
+
+def wrapped(token):
+    """Whether a token after an address is the rest of it: it has a path's marks, or it's short and not a common word
+    ("rice rcatori", "ricercator i"; "reclutamento-docenti unitamente" stays apart)."""
+    word = token.rstrip("/")
+    return bool(re.search(r"[a-z]", word)) and word not in NOT_WRAPPED and (bool(re.search(r"[_/.\d#?=&%-]", token)) or len(word) <= 7)
+
+
+JUNK_TAIL = re.compile(r"(?:/?_-?|_(?:oppure|e|o))$")  # "www.unipr.it_- Ateneo", "valutazioni-comparative_oppure"
+APPLY_SENTENCE = re.compile(r"domand|candidatur|iscrizion")
+ONLINE = re.compile(r"telematic|on[- ]?line|applicazion|piattaforma|procedura informatica|link|portale|connettendosi|collegandosi|accedendo|registrazion")
+NOT_A_SITE = re.compile(r"versament|pagament|tassa|contribut|pagopa|\bpec\b|posta elettronica certificata|diario|calendario|convocazion")
+NOT_APPLY_SITE = re.compile(r"fac-?simile|modello di domanda|albo pretorio|consultat")  # where to read the call, not to apply
+BANDO_SENTENCE = re.compile(r"bando|integrale|avviso|disponibil|pubblicat|consultabil|scaricabil|reperibil|sito|telematic|"
+                            r"internet|informazion|indirizzo")
+# application platforms many bodies use: when the text names one of them for applying, that's where one applies
+PORTAL = re.compile(r"iscrizioneconcorsi\.it|concorsismart\.it|selezionieconcorsi\.it|pica\.cineca\.it|selezionionline\.cnr\.it|"
+                    r"inpa\.gov\.it|netservizi\.it", re.I)
+AGGREGATOR = re.compile(r"bandi\.miur\.it|mur\.gov\.it|euraxess", re.I)  # national lists that repeat the call, not the body's own
+# sentences end before a capital, but not after "n.", "art.": "n. BR 14/2026", "art. 3"
+SENTENCE = re.compile(r"(?<!\bn)(?<!\bnn)(?<!\b[Aa]rt)(?<!\b[Aa]rtt)\.\s+(?=[A-Z])")
+
+
+def addresses(text):
+    """[(start, end, address)] for the web addresses printed in text: start/end span them as printed (a wrapped one
+    with its space), address is the link target, without trailing punctuation or junk."""
+    out = []
+    for m in WEB.finditer(text):
+        printed = m.group(0)
+        path = re.sub(r"^https?://", "", printed, flags=re.I).partition("/")[2]
+        end = m.end()
+        for _ in range(3):  # a long address can wrap more than once
+            nxt = WRAPPED.match(text, end)
+            if not (path and re.search(r"[\w-]$", printed) and nxt and wrapped(nxt.group(1))):
+                break
+            printed, end = printed + nxt.group(0), nxt.end()
+        printed = JUNK_TAIL.sub("", printed.rstrip(".:'’-"))
+        addr = re.sub(r"^ww\.", "www.", printed.replace(" ", ""))
+        if "." in host(addr):
+            out.append((m.start(), m.start() + len(printed), addr))
+    return out
+
+
+def href(addr):
+    return addr if re.match(r"https?://", addr, re.I) else "http://" + addr
+
+
+def host(addr):
+    return re.sub(r"^https?://", "", addr, flags=re.I).split("/")[0]
+
+
+def text_links(text):
+    """The addresses a GU notice text gives: "domanda", where one applies online; "bando", the first address after words
+    about where the full call is published (a national list only if there's nothing else). An address counts for
+    "domanda" when the words since the previous address are about applying online, or when it's a known application
+    platform in a sentence about applying; known platforms win, else the text must name only one. The GU's own site
+    doesn't count: the page already links it."""
+    portals, apply, bando = [], {}, []
+    for sentence in SENTENCE.split((text or "").replace("\n", " ")):
+        prev = 0
+        found = [a for a in addresses(sentence) if "gazzettaufficiale.it" not in a[2].lower()]
+        bare = sentence.lower()
+        for start, end, addr in found:
+            bare = bare.replace(sentence[start:end].lower(), " ")
+        for start, end, addr in found:
+            lead, prev = sentence[prev:start].lower(), end
+            if NOT_A_SITE.search(lead):
+                continue
+            if PORTAL.search(addr) and APPLY_SENTENCE.search(bare):
+                portals.append(addr)
+            elif APPLY_SENTENCE.search(lead) and ONLINE.search(lead) and not NOT_APPLY_SITE.search(lead):
+                apply.setdefault(re.sub(r"^(?:https?://)?(?:www\.)?|/$", "", addr.lower()), addr)
+            elif BANDO_SENTENCE.search(lead):
+                bando.append(addr)
+    domanda = portals[0] if portals else next(iter(apply.values())) if len(apply) == 1 else None
+    bando = [a for a in bando if not AGGREGATOR.search(a)] or bando
+    return {"domanda": domanda, "bando": bando[0] if bando else None}
+
+
 def save_calls(calls):
     tmp = DATA + ".tmp"
     json.dump(calls, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=0)

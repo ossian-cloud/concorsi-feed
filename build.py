@@ -227,6 +227,15 @@ def pay_text(c):
     return f"{euro(hi)} € l'anno" if hi else None
 
 
+def linkify(p):
+    """A GU text paragraph, escaped, with the web addresses it prints made into links."""
+    out, last = [], 0
+    for start, end, addr in gu.addresses(p):
+        out += [html.escape(p[last:start]), f'<a href="{html.escape(gu.href(addr))}" rel="nofollow">{html.escape(p[start:end])}</a>']
+        last = end
+    return "".join(out) + html.escape(p[last:])
+
+
 def paragraphs(text):
     """The description's paragraphs. Some bodies hard-wrap their text on inPA: after a line that ends on a dash, or a
     long line (not a list item or a heading) that runs on into a lowercase word, the text continues the same paragraph."""
@@ -372,7 +381,8 @@ Il conteggio completo, per tipo di ente: <a href="gazzetta-e-inpa.html">quanti c
 <li>La <b>scadenza</b> è quella che la redazione della Gazzetta indica per facilitare la ricerca: la Gazzetta stessa avverte che l'unica ufficiale è quella scritta nel bando. Quando il testo dell'avviso indica una sola ora per le domande («entro le ore 12,00») la aggiungo; quando la data cade di domenica o in un festivo e il testo dice che il termine passa al primo giorno non festivo, la sposto. La pagina dice cosa viene dalla Gazzetta e cosa ho letto io nel testo. Controllala sempre.</li>
 <li>La <b>regione</b> la ricavo dal luogo nel nome dell'ente («… di Seriate», «… - Chieri»), cercandolo nell'elenco dei comuni dell'ISTAT; gli enti senza un luogo nel nome (Banca d'Italia, ministeri) vanno in «{NAZ_LABEL}». La provincia c'è solo per i Comuni, come per inPA.</li>
 <li>Se lo stesso concorso è anche su inPA, mostro solo la scheda di inPA, che è più completa. Il confronto (stesso ente, stessa scadenza, stessa figura) è prudente: qualche doppione può restare.</li>
-<li>I concorsi della Gazzetta non sono nel file CSV, che contiene solo i dati di inPA con la loro licenza.</li>
+<li>Quando il testo dell'avviso indica <b>dove fare domanda online</b> (per esempio una piattaforma come PICA o iscrizioneconcorsi.it) o un <b>sito</b> dove trovare il bando, la pagina li mette come pulsanti. Sono indirizzi letti nel testo, non verificati: fa fede il bando.</li>
+<li>I concorsi della Gazzetta non sono in <code>concorsi-aperti.csv</code>, che contiene solo i dati di inPA con la loro licenza, ma in un file a parte, <a href="dati.html#gazzetta">concorsi-gazzetta.csv</a>.</li>
 <li>Condizioni d'uso della Gazzetta: la riproduzione dei testi in formato elettronico è consentita citando la fonte e il carattere non autentico e gratuito. Quindi: fonte Gazzetta Ufficiale della Repubblica Italiana; il testo qui riportato <b>non è autentico</b> (fa fede solo la Gazzetta) e il servizio è <b>gratuito</b>.</li>
 </ul>
 """
@@ -1207,9 +1217,15 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
         buttons.append(f'<a class="btn" href="{e(ext[0])}">Candidati sul sito dell\'ente</a>')
     elif not closed and not is_gu(c) and not ext:
         buttons.append(f'<a class="btn" href="{e(INPA_APPLY.format(c["id"]))}">Candidati su inPA</a>')
+    links = gu.text_links(c.get("desc")) if is_gu(c) else {}  # addresses the notice text gives: read, not checked
+    if not closed and links.get("domanda"):
+        buttons.append(f'<a class="btn" href="{e(gu.href(links["domanda"]))}" rel="nofollow">Fai domanda online</a>')
+    if links.get("bando"):
+        buttons.append(f'<a class="btn ghost" href="{e(gu.href(links["bando"]))}" rel="nofollow">Sito indicato nell’avviso</a>')
+    where = [f"{lab} {e(gu.host(links[k]))}" for k, lab in (("domanda", "domanda online su"), ("bando", "sito indicato:")) if links.get(k) and not (closed and k == "domanda")]
     if c.get("pa_url") and c["pa_url"].startswith(("http://", "https://")):
         buttons.append(f'<a class="btn ghost" href="{e(c["pa_url"])}">Sito dell\'ente</a>')
-    paras = "".join(f"<p>{e(p)}</p>\n" for p in paragraphs(desc_txt))
+    paras = "".join(f"<p>{linkify(p) if is_gu(c) else e(p)}</p>\n" for p in paragraphs(desc_txt))
     description = (f"<h2>Descrizione</h2>\n{paras}" + (GU_TEXT_NOTE if is_gu(c) else
                    '<p class="small">Testo abbreviato: la descrizione completa è sulla scheda ufficiale.</p>\n'
                    if len(c.get("desc") or "") >= c.get("desc_max", 600) else "")) if paras else ""
@@ -1264,7 +1280,7 @@ def call_page(c, today, now, region_pages, profile_pages, province_pages, note="
 <p class="lead">{e(ente_name(c))}{" · " if c.get("ente") else ""}{e(region_text(c))}{"" if closed or not valid_closes(c) else f" · scadenza <b>{day(c['closes'])}{'' if c['closes'][11:] in ('', '23:59') else ' ore ' + c['closes'][11:]}</b>"}</p>
 {status}{"" if closed else audience_note(c)}
 <div class="cta">{"".join(buttons)}</div>
-{'<p class="small">Per accedere a inPA servono SPID, CIE, CNS o eIDAS.</p>' if not closed and not is_gu(c) and not ext else ""}
+{'<p class="small">Per accedere a inPA servono SPID, CIE, CNS o eIDAS.</p>' if not closed and not is_gu(c) and not ext else ""}{f'<p class="small">Letti nel testo dell’avviso, non verificati: {"; ".join(where)}. Fa fede il bando.</p>' if where else ""}
 <div class="table"><table class="facts"><tbody>
 {facts}
 </tbody></table></div>
@@ -1779,10 +1795,13 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
     ("sede_codice_istat", "Codice ISTAT a sei cifre di sede_comune (per esempio 001272), dall'elenco ISTAT dei comuni"),
     ("categorie_protette", "Riserva per le categorie protette (legge 68/1999) dichiarata nel titolo: «riservato» (bando interamente riservato), «posti riservati» (alcuni posti), vuoto se il titolo non la nomina. Una stima dal titolo: molti concorsi applicano la riserva senza scriverlo lì"),
     ("ora_scadenza", "Ora della scadenza (HH:MM, ora di Roma) quando il testo dell'avviso in Gazzetta ne indica una sola per le domande (per esempio «entro le ore 12,00»); vuoto altrimenti"),
+    ("url_candidatura", "Indirizzo web dove fare domanda online, quando il testo dell'avviso in Gazzetta ne indica uno solo (per esempio https://selezionionline.cnr.it); letto nel testo, non verificato; vuoto altrimenti"),
+    ("url_bando", "Indirizzo web che il testo dell'avviso indica per il bando completo o per informazioni (il primo, se più d'uno; un elenco nazionale come bandi.mur.gov.it solo se non ce n'è altro); letto nel testo, non verificato; vuoto altrimenti"),
 ]
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuove colonne in fondo <code>url_candidatura</code> (dove fare domanda online) e <code>url_bando</code> (il sito indicato per il bando o per informazioni), lette nel testo dell'avviso. Le altre colonne non cambiano."),
     ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuova colonna in fondo <code>ora_scadenza</code>, l'ora letta nel testo dell'avviso; <code>scadenza</code> passa al primo giorno non festivo quando cade di domenica o in un festivo e il testo dice che il termine slitta (71 avvisi). Le altre colonne non cambiano."),
     ("2026-11-06", "Nuovi file mensili <code>concorsi-chiusi-AAAA-MM.csv.gz</code> con i concorsi chiusi, stesse colonne di <code>concorsi-aperti.csv</code> (compressi con gzip). <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-11-03", "Aggiunta in fondo a entrambi i file la colonna <code>categorie_protette</code>: «riservato» o «posti riservati» quando il titolo dichiara una riserva per le categorie protette (legge 68/1999). Le colonne esistenti non cambiano."),
@@ -1870,7 +1889,8 @@ def gu_dataset_row(c):
             "numero_gu": c.get("gu_issue") or "", "url_gu": c.get("gu_url") or "",
             "url_pagina": f"{BASE}/{page_rel(c)}",
             "discipline_mediche": "|".join(discipline.LABEL[d] for d in c["_disc"]), **sede_fields(c), **who_fields(c),
-            "ora_scadenza": c["closes"][11:] if valid_closes(c) and c.get("closes_hour_text") else ""}
+            "ora_scadenza": c["closes"][11:] if valid_closes(c) and c.get("closes_hour_text") else "",
+            **{f"url_{k if k == 'bando' else 'candidatura'}": gu.href(v) if v else "" for k, v in gu.text_links(c.get("desc")).items()}}
 
 
 def num(v):
