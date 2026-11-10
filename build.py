@@ -1801,6 +1801,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-10", "File mensili dei concorsi chiusi: nuove colonne <code>motivo_chiusura</code> («scadenza» o «rimosso_da_inpa») e <code>rimosso_il</code>, dopo <code>categorie_protette</code>, per distinguere i concorsi scaduti da quelli che inPA ha tolto prima della scadenza. <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuove colonne in fondo <code>url_candidatura</code> (dove fare domanda online) e <code>url_bando</code> (il sito indicato per il bando o per informazioni), lette nel testo dell'avviso. Le altre colonne non cambiano."),
     ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuova colonna in fondo <code>ora_scadenza</code>, l'ora letta nel testo dell'avviso; <code>scadenza</code> passa al primo giorno non festivo quando cade di domenica o in un festivo e il testo dice che il termine slitta (71 avvisi). Le altre colonne non cambiano."),
     ("2026-11-06", "Nuovi file mensili <code>concorsi-chiusi-AAAA-MM.csv.gz</code> con i concorsi chiusi, stesse colonne di <code>concorsi-aperti.csv</code> (compressi con gzip). <code>concorsi-aperti.csv</code> non cambia."),
@@ -1915,11 +1916,20 @@ def dataset_row(c):
 
 CLOSED = os.path.join(HERE, "data", "closed-rows.json")  # {id: CSV row} of every inPA call seen closed, kept forever
 CLOSED_FROM = "2026-11"  # the first complete month: the archive started on 6 Nov 2026, with what was still stored
+CLOSED_EXTRA = [  # columns only the monthly closed files have
+    ("motivo_chiusura", "Perché il concorso è nell'archivio: «scadenza» (è passata la data di scadenza) o «rimosso_da_inpa» (è sparito dall'elenco di inPA prima della scadenza: revocato, annullato o tolto per altri motivi, che inPA non dice)"),
+    ("rimosso_il", "Per i concorsi «rimosso_da_inpa», il giorno (AAAA-MM-GG) in cui ho visto che non era più nell'elenco di inPA; vuoto per gli altri, e per i pochi rimossi prima del 10 novembre 2026 di cui non ho più la data"),
+]
+CLOSED_AT = 26  # the archive's own columns follow the 26 that concorsi-aperti.csv had on 10 Nov 2026; columns added to it later go after them
+
+
+def closed_fields():
+    return FIELDS[:CLOSED_AT] + CLOSED_EXTRA + FIELDS[CLOSED_AT:]
 
 
 def write_closed(outdir, calls, open_, now):
     """dati/concorsi-chiusi-AAAA-MM.csv.gz: inPA calls that closed, by month of the deadline (of vanishing, if earlier),
-    same columns as concorsi-aperti.csv. fetch.py drops a call 14 days after it leaves inPA's sitemap; its row stays here,
+    the columns of concorsi-aperti.csv plus CLOSED_EXTRA. fetch.py drops a call 14 days after it leaves inPA's sitemap; its row stays here,
     as the last build saw it. A call that reopens (extension, sitemap glitch) leaves the archive until it closes again.
     Returns [(month, rows, bytes)], newest first."""
     rows = json.load(open(CLOSED, encoding="utf-8")) if os.path.exists(CLOSED) else {}
@@ -1937,7 +1947,14 @@ def write_closed(outdir, calls, open_, now):
         # the month it stopped being open: a call inPA withdraws before its deadline goes in the month it vanished
         ends = [d[:10] for d in (c["closes"] if valid_closes(c) else "", c.get("gone") or "") if d]
         r["_mese"] = min(ends)[:7]
+        removed = c.get("gone") and not (valid_closes(c) and c["closes"][:10] <= c["gone"][:10])
+        r["motivo_chiusura"] = "rimosso_da_inpa" if removed else "scadenza"
+        r["rimosso_il"] = c["gone"][:10] if removed else ""
         rows[c["id"]] = r
+    for r in rows.values():
+        if "motivo_chiusura" not in r:  # stored before 10 Nov 2026 and no longer in calls: only the month says if it went early
+            r["motivo_chiusura"] = "rimosso_da_inpa" if r["_mese"] < (r["scadenza"] or "9999")[:7] else "scadenza"
+            r["rimosso_il"] = ""
     with open(CLOSED + ".tmp", "w", encoding="utf-8") as f:
         json.dump(rows, f, ensure_ascii=False)
     os.replace(CLOSED + ".tmp", CLOSED)
@@ -1948,7 +1965,7 @@ def write_closed(outdir, calls, open_, now):
     for month in sorted(by_month, reverse=True):
         rows_ = sorted(by_month[month], key=lambda r: (r["scadenza"] or "9999", r["id"]))
         buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=[k for k, _ in FIELDS], extrasaction="ignore")
+        w = csv.DictWriter(buf, fieldnames=[k for k, _ in closed_fields()], extrasaction="ignore")
         w.writeheader()
         w.writerows(rows_)
         path = os.path.join(outdir, "dati", f"concorsi-chiusi-{month}.csv.gz")
@@ -1980,7 +1997,7 @@ def write_dataset(outdir, open_, latest, when, closed=()):
         os.replace(path + ".tmp", path)
         sizes[name] = os.path.getsize(path)
     write_datapackage(outdir, [(name, fields_) for name, fields_, _ in files]
-                      + [(f"concorsi-chiusi-{m}.csv.gz", FIELDS) for m, _, _ in closed], latest)
+                      + [(f"concorsi-chiusi-{m}.csv.gz", closed_fields()) for m, _, _ in closed], latest)
     e = html.escape
     fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in FIELDS)
     gu_fields = "\n".join(f"<tr><td><code>{k}</code></td><td>{e(d)}</td></tr>" for k, d in GU_FIELDS)
@@ -1990,7 +2007,12 @@ def write_dataset(outdir, open_, latest, when, closed=()):
     closed_section = f"""
 <h2 id="chiusi">I concorsi chiusi, mese per mese</h2>
 <p>Quando un concorso chiude esce dal file dei concorsi aperti, e prima o poi sparisce anche dall'elenco di inPA. Da novembre 2026 ne tengo una copia: un file per mese di scadenza
-(o del mese in cui inPA l'ha tolto, se prima della scadenza), con le stesse colonne di quello dei concorsi aperti (la colonna <code>url_pagina</code> è vuota, perché la pagina su questo sito resta online solo 14 giorni dopo la chiusura).
+(o del mese in cui inPA l'ha tolto, se prima della scadenza), con le stesse colonne di quello dei concorsi aperti (la colonna <code>url_pagina</code> è vuota, perché la pagina su questo sito resta online solo 14 giorni dopo la chiusura)
+e due colonne solo loro, dopo <code>categorie_protette</code>:</p>
+<ul>
+{"".join(f"<li><code>{k}</code>: {e(d)}.</li>" for k, d in CLOSED_EXTRA)}
+</ul>
+<p>
 Serve per contare e confrontare: quanti concorsi per regione, per professione, per tipo di ente, mese dopo mese.</p>
 <ul>
 {months}
