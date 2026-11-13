@@ -934,12 +934,18 @@ DESC_NOT_OPEN = re.compile(r"\b(?:selezione|procedura|avviso)\s+(?:\w+\s+){0,2}r
                            r"|\bart(?:icolo|\.)?\s*92\b(?=[^;]{0,40}?(?:267|t\.?\s?u\.?\s?e\.?\s?l))", re.I)
 
 
+# Comune di Vicenza (13 Nov 2026 audit): "concorso pubblico ... rivolto agli studenti dell'Università degli studi di Padova"
+STUDENTS = re.compile(r"\b(?:rivolt|riservat)[oa]\s+(?:esclusivamente\s+|unicamente\s+)?(?:a|agli|alle|ai)\s+(?:\w+\s+)?student", re.I)
+
+
 def audience(c):
-    """Who the call is for, guessed from its title (the same tests as JobPosting): "notopen", "mobility", "reserved",
-    "course" (trainees), "staff" (art. 90), "fixed" (art. 110), or "" for an ordinary public call."""
+    """Who the call is for, guessed from its title (the same tests as JobPosting): "notopen", "students", "mobility",
+    "reserved", "course" (trainees), "staff" (art. 90), "fixed" (art. 110), or "" for an ordinary public call."""
     full = " ".join(c["title"].split())
     if NOT_OPEN.search(full) or DESC_NOT_OPEN.search(" ".join((c.get("desc") or "")[:600].split())):
         return "notopen"
+    if STUDENTS.search(full):
+        return "students"
     if c.get("gu_type") == "MOBILITA'" or is_mobility(full, what.what(titles.sentence_case(full), c.get("ente"))):  # the GU's own type
         return "mobility"
     if is_reserved(full):
@@ -958,8 +964,8 @@ def audience(c):
 # in lists, after the ente: what a visitor most needs to know before opening the call
 AUDIENCE_TAG = {"notopen": "non aperto a tutti", "mobility": "mobilità, solo dipendenti pubblici", "reserved": "riservato alle categorie protette",
                 "course": "corso di formazione, non un posto di lavoro", "staff": "staff del sindaco, a termine", "fixed": "incarico a termine",
-                "intern": "tirocinio, non un posto di lavoro"}
-CLOSED_TO_PUBLIC = {"notopen", "mobility", "reserved", "course", "intern"}
+                "intern": "tirocinio, non un posto di lavoro", "students": "riservato agli studenti di un'università"}
+CLOSED_TO_PUBLIC = {"notopen", "students", "mobility", "reserved", "course", "intern"}
 
 
 def audience_note(c):
@@ -991,6 +997,9 @@ def audience_note(c):
         if re.search(r"avviamento numerico", full, re.I):
             what_ += (" È un <b>avviamento numerico</b>: di solito non ci si candida all'ente, ma si aderisce all'avviso del "
                       "collocamento mirato (Centro per l'impiego), che forma la graduatoria dei suoi iscritti.")
+    elif aud == "students":
+        what_ = ("Dal titolo sembra un concorso <b>riservato agli studenti</b> di un'università: può partecipare solo chi vi è "
+                 "iscritto, con i requisiti che il bando indica.")
     elif aud == "course":
         what_ = ("Dal titolo sembra la selezione dei partecipanti a un <b>corso di formazione</b>, non un posto di lavoro: "
                  "i «posti» sono i posti nel corso.")
@@ -1069,6 +1078,8 @@ def job_posting(c, url):
         job += " (mobilità, per dipendenti pubblici)"
     elif job and is_reserved(full):
         job += " (riservato alle categorie protette)"
+    elif job and STUDENTS.search(full):
+        job += " (riservato agli studenti di un'università)"
     elif job and ART90.search(full):  # "Istruttore" alone reads like an ordinary post
         job += " (staff del sindaco, a tempo determinato)"
     ld = {"@context": "https://schema.org", "@type": "JobPosting", "title": job or short_title(c, 110), "description": desc,
@@ -1135,6 +1146,8 @@ def page_title(c, now, note="", job=True):
     aud = c.get("_aud", audience(c))
     if (aud == "reserved" or aud == "mobility" and is_reserved(full)) and not re.search(r"riserv", titles.cut(title, max(36, 64 - len(note))), re.I):
         extra.append("riservato disabili" if l68_groups(" ".join(c["title"].split())) == ["art1"] else "riservato categorie protette")
+    elif aud == "students" and not re.search(r"student", titles.cut(title, max(36, 64 - len(note))), re.I):
+        extra.append("per studenti")
     elif said and aud != "mobility" and not re.search(r"riserv", title, re.I):
         extra.append("riservato")
     extra = ", " + ", ".join(extra) if extra else ""
@@ -1801,6 +1814,7 @@ GU_FIELDS = [  # (column, description) for dati/concorsi-gazzetta.csv: calls onl
 
 # Changes to the CSV columns, newest first, shown on dati.html. Rule: never rename or remove a column; add new ones at the end.
 CSV_CHANGES = [
+    ("2026-11-13", "<code>concorsi-gazzetta.csv</code>: nella colonna <code>ente</code> i numeri romani restano maiuscoli («Papa Giovanni XXIII», non «Xxiii»). Le colonne non cambiano."),
     ("2026-11-10", "File mensili dei concorsi chiusi: nuove colonne <code>motivo_chiusura</code> («scadenza» o «rimosso_da_inpa») e <code>rimosso_il</code>, dopo <code>categorie_protette</code>, per distinguere i concorsi scaduti da quelli che inPA ha tolto prima della scadenza. <code>concorsi-aperti.csv</code> non cambia."),
     ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuove colonne in fondo <code>url_candidatura</code> (dove fare domanda online) e <code>url_bando</code> (il sito indicato per il bando o per informazioni), lette nel testo dell'avviso. Le altre colonne non cambiano."),
     ("2026-11-09", "<code>concorsi-gazzetta.csv</code>: nuova colonna in fondo <code>ora_scadenza</code>, l'ora letta nel testo dell'avviso; <code>scadenza</code> passa al primo giorno non festivo quando cade di domenica o in un festivo e il testo dice che il termine slitta (71 avvisi). Le altre colonne non cambiano."),
@@ -2342,7 +2356,7 @@ I documenti allegati non vengono mai scaricati né letti: li elenco soltanto, co
 <h2>Limiti, detti chiaramente</h2>
 <ul>
 <li id="sede">La <b>sede di lavoro</b> compare quando il bando stesso la indica («presso la sede di…», «Presidio ospedaliero di…», un solo comune della regione del concorso) oppure, per pochi enti che lavorano in un solo comune, è la sede dell'ente, verificata sul suo sito; la scheda dice quale delle due. Se il bando cita più comuni, o l'ente ha più sedi, non la indico.</li>
-<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo (per le procedure non aperte a tutti, anche dalla descrizione su inPA, quando lo dice esplicitamente): chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione e gli avvisi per tirocini, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis), concorsi degli enti di ricerca riservati a chi ha già lavorato a tempo determinato negli enti di ricerca vigilati dal MUR o su progetti PNRR (art. 1, comma 312, della legge 199/2025), scavalchi e assegnazioni temporanee per chi lavora già in un altro ente (art. 92 del d.lgs. 267/2000). Non segnalo nemmeno le autorizzazioni per il noleggio con conducente, che non sono un lavoro alle dipendenze dell'ente. Le loro schede restano qui.</li>
+<li id="mobilita">Gli <b>avvisi di mobilità</b> (art. 30 e 34-bis del d.lgs. 165/2001) sono aperti solo a chi lavora già in una pubblica amministrazione: nelle offerte di lavoro che Google mostra, al nome del posto aggiungo «(mobilità, per dipendenti pubblici)», perché chi cerca «lavoro» nel proprio comune lo sappia prima di aprire la scheda. Sulla scheda stessa, sotto il titolo, una nota dice la stessa cosa. È una stima fatta dal titolo (per le procedure non aperte a tutti, anche dalla descrizione su inPA, quando lo dice esplicitamente): chi può partecipare lo stabilisce il bando. Allo stesso modo segnalo i bandi interamente riservati alle categorie protette (legge 68/1999). Segnalo anche i concorsi riservati agli studenti di un'università. Sulla scheda e negli elenchi segnalo anche le selezioni dei partecipanti a un corso di formazione e gli avvisi per tirocini, che non sono posti di lavoro, e due tipi di incarico aperti a tutti ma a termine: lo staff del sindaco o della giunta (art. 90 del d.lgs. 267/2000), scelto su base fiduciaria, e gli incarichi dell'art. 110, che di norma durano al massimo quanto il mandato del sindaco. Negli elenchi di «Altri concorsi» metto prima quelli aperti a tutti e che non scadono entro domani. Non segnalo affatto a Google, come offerte di lavoro, le procedure non aperte al pubblico: progressioni interne, stabilizzazioni, interpelli rivolti a chi è già in un elenco di idonei, avvisi per chi è idoneo nelle graduatorie di altri enti, bandi riservati al personale dell'ente o al personale in disponibilità (art. 34 e 34-bis), concorsi degli enti di ricerca riservati a chi ha già lavorato a tempo determinato negli enti di ricerca vigilati dal MUR o su progetti PNRR (art. 1, comma 312, della legge 199/2025), scavalchi e assegnazioni temporanee per chi lavora già in un altro ente (art. 92 del d.lgs. 267/2000). Non segnalo nemmeno le autorizzazioni per il noleggio con conducente, che non sono un lavoro alle dipendenze dell'ente. Le loro schede restano qui.</li>
 <li>La provincia c'è solo per Comuni, Province e Città metropolitane; per gli altri enti solo la regione. Per i concorsi nazionali la sede è sulla scheda ufficiale.</li>
 <li>I dati possono essere in ritardo o sbagliati; il mio programma può avere errori. <strong>{"Fanno fede inPA e la Gazzetta Ufficiale" if GU_ON else "Fa fede inPA"}</strong>: prima di candidarti controlla bando, requisiti e scadenza (data e ora) sulla scheda ufficiale.</li>
 <li>{"Non è l'elenco di tutti i concorsi pubblici italiani: ci sono quelli di inPA e della Gazzetta Ufficiale, non quelli pubblicati solo sull'albo o sul sito di un ente o nei bollettini regionali." if GU_ON else "Non tutte le amministrazioni pubblicano tutto su inPA: questo non è l'elenco di tutti i concorsi pubblici italiani, ma di quelli presenti sul portale."}</li>
