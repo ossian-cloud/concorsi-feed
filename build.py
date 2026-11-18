@@ -757,8 +757,9 @@ def emit_page(outdir, rel, title, description, body, active="", depth=0, extra_h
 
 FRESH_DAYS = 3  # «nuovo» in lists: applications opened today or in the two days before
 FRESH = ("", "")  # (first, last) local ISO day of FRESH_DAYS, set by main()
-# inPA's sitemap has gone up to 36 h without a new lastmod (a weekend); past this, home and nuovi.html say it stopped
-INPA_QUIET_HOURS = 40
+# inPA's sitemap shows each night's batch (lastmod ~23:00Z) about 2 h later, and lastmods have had gaps of up to 36 h
+# (a weekend), so the newest can be ~38 h old in normal times; past this, home and nuovi.html say inPA stopped
+INPA_QUIET_HOURS = 48
 INPA_NOTE = ""  # set by main() when inPA's newest lastmod is older than INPA_QUIET_HOURS
 
 
