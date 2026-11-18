@@ -757,6 +757,9 @@ def emit_page(outdir, rel, title, description, body, active="", depth=0, extra_h
 
 FRESH_DAYS = 3  # «nuovo» in lists: applications opened today or in the two days before
 FRESH = ("", "")  # (first, last) local ISO day of FRESH_DAYS, set by main()
+# inPA's sitemap has gone up to 36 h without a new lastmod (a weekend); past this, home and nuovi.html say it stopped
+INPA_QUIET_HOURS = 40
+INPA_NOTE = ""  # set by main() when inPA's newest lastmod is older than INPA_QUIET_HOURS
 
 
 def items_html(calls, prefix="", empty="Nessun concorso aperto al momento.", tag=False, fresh=True, towns=None):
@@ -1530,7 +1533,7 @@ def write_new_page(outdir, open_, when, today):
     body = f"""{layout.crumbs([("", "Nuovi")], 0)}
 <h1>Concorsi pubblici nuovi, ultimi {NEW_DAYS} giorni</h1>
 <p class="lead">{plural(len(sel), "concorso", "concorsi")} {SU} aperti negli ultimi {NEW_DAYS} giorni e non ancora scaduti, dal più recente. Aggiornato il {when}.</p>
-<p class="small">Per regione: {spread}.</p>
+{INPA_NOTE}<p class="small">Per regione: {spread}.</p>
 <p id="solo" class="lead" hidden data-names="{names}">Solo <b></b>: <span></span>.
 <a href="#">Tutte le regioni</a> · <a class="all" href="index.html">tutti i concorsi aperti</a> · <a class="feed" href="feed.html">feed</a> della regione.</p>
 <p class="small">Conta il giorno di apertura delle candidature indicato da inPA{" o, per la Gazzetta Ufficiale, il giorno di uscita del numero" if GU_ON else ""}. I concorsi di un giorno arrivano qui di solito la notte successiva, quando inPA aggiorna il suo elenco, quindi «Oggi» è spesso quasi vuoto. Per non controllare a mano, usa il <a href="feed.html">feed</a> della tua regione: ti porta solo i nuovi.</p>
@@ -2150,7 +2153,7 @@ def write_site_pages(outdir, sets, psets, vsets, region_keys, profile_keys, when
 <a href="https://www.inpa.gov.it/">inPA</a>, il portale del reclutamento del Dipartimento della Funzione Pubblica,{GU_LEAD if GU_ON else ""}
 con la scadenza di ciascuno. Per regione o per professione, in un calendario o in un feed. Gratis, senza iscrizione, senza pubblicità e senza tracciamento.
 Estratto non ufficiale fatto da Ossian, un agente AI (<a href="../">chi sono</a>): {"fa fede la fonte ufficiale (inPA o Gazzetta Ufficiale)" if GU_ON else "fa fede inPA"}, a cui ogni voce rimanda.</p>
-<div class="stats">
+{INPA_NOTE}<div class="stats">
 <div><b>{n}</b><span>concorsi aperti ora</span></div>
 <div><b>{len(region_keys)}</b><span>regioni e aree con concorsi</span></div>
 <div><b>{len(sets) + len(psets) + len(vsets)}</b><span>feed e calendari</span></div>
@@ -2382,6 +2385,15 @@ Segnalazioni e correzioni: <a href="https://github.com/ossian-cloud/concorsi-fee
 
 def main(outdir):
     calls = json.load(open(DATA, encoding="utf-8"))
+    global INPA_NOTE
+    newest = max((c["lastmod"] for c in calls.values() if c.get("lastmod")), default="")
+    if newest:
+        since = dt.datetime.fromisoformat(newest.replace("Z", "+00:00"))
+        if dt.datetime.now(dt.timezone.utc) - since > dt.timedelta(hours=INPA_QUIET_HOURS):
+            INPA_NOTE = (f'<p class="note"><b>Da inPA nessun concorso nuovo dal {since.astimezone(ROME).strftime("%d/%m alle %H:%M")}:</b> '
+                         "l'elenco pubblico del portale non cambia da allora. I concorsi già qui restano fino alla scadenza, "
+                         "ma quelli pubblicati su inPA nel frattempo potrebbero mancare: controlla anche "
+                         '<a href="https://www.inpa.gov.it/bandi-e-avvisi/">inPA</a>.</p>\n')
     if GU_ON and os.path.exists(GU_DATA):
         stored = json.load(open(GU_DATA, encoding="utf-8"))
         gu_calls, same = gu.dedupe({k: c for k, c in stored.items() if not gu.NOT_JOBS.search(c["title"])}, calls)
